@@ -6,22 +6,25 @@
 #include <sys/time.h>
 
 #define PORT 2121
+#define MAX_SIZE_NAME 256
 #define MAX_FILE_SIZE 1000
 
 long int get_file_size(FILE* f);
+
+void get_file(int*, int, char*);
 
 int check_buffer(char*);
 
 void add_to_file(char*, char*);
 
-void add_file_size(char* oldbuf, char* newbuf);
+char* add_file_size(char* oldbuf);
 
 void strcut(char*, char*);
 
 int main(int argc, char **argv)
 {
     int clientfd;
-    char *host, buf[MAXLINE], buf_rec[MAX_FILE_SIZE + 1];
+    char *host, buf[MAXLINE];
     rio_t rio;
 
     if (argc != 2) {
@@ -48,45 +51,36 @@ int main(int argc, char **argv)
     Rio_readinitb(&rio, clientfd);
 
     while (Fgets(buf, MAXLINE, stdin) != NULL) {
+		//On vérifie que la commande tapée au clavier est "correcte"
+
 		if (check_buffer(buf)) {
-			//On met dans le buffer uniquement le nom du fichier et pas le get
-
-			char nbuf[strlen(buf) - 4];
-
-			strcut(buf, nbuf);
-
 			/*
-				On ajout au buffer la taille du fichier demandé, s'il existe déjà en interne.
+				On supprime le "get" du buffer pour ne garder que le nom du fichier demandé.
+				On ajoute au buffer la taille du fichier, s'il existe déjà en interne.
 				Ainsi, si une des transactions précédentes s'est mal passée, on peut reprendre
 				au bon endroit (et ne pas tout recommencer).
 			*/
-			
-			char* fbuf = malloc(strlen(nbuf));
-			add_file_size(nbuf, fbuf);
 
+			char filename[strlen(buf) - 4];
+			strcut(buf, filename);
+
+			//printf("filename : %s\n", filename);
+			
+			char* fbuf = add_file_size(filename);
+
+			//printf("buffer : %s\n", fbuf);
+			//printf("size buffer : %li\n", strlen(fbuf));
+			//printf("last : %i\n", fbuf[strlen(fbuf)]);
+			
 			struct timespec stop, start;
 			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 		
-			//On envoie nbuf qui contient le nom de notre fichier
-			Rio_writen(clientfd, nbuf, strlen(buf));
-
-			int size_rec;
+			//On envoie fbuf qui contient le nom de notre fichier et sa taille
+			Rio_writen(clientfd, fbuf, strlen(fbuf));
+	
+			//On récupère notre fichier distant
 			int size_tot = 0;
-
-			/*
-				Tant qu'on reçoi des données du serveur, on les recupère par
-				paquets de 1000 bytes via "recv" puis on les ajoute au 
-				fichier souhaité.
-			*/
-			
-			while ((size_rec = recv(clientfd, buf_rec, MAX_FILE_SIZE, 0)) > 0) {
-				buf_rec[size_rec] = '\0';
-
-				add_to_file(buf_rec, nbuf);
-
-				printf("Paquet de taille %i octets recu\n", size_rec);
-				size_tot += size_rec;
-			}
+			get_file(&size_tot, clientfd, filename);
 
 			clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
 			uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
@@ -140,9 +134,12 @@ long int get_file_size(FILE* f) {
     return size;
 }
 
-void add_file_size(char* oldbuf, char* newbuf) {
+char* add_file_size(char* oldbuf) {
+	//On calcule la taille du nom du fichier
+			
 	unsigned int taille_nom = strlen(oldbuf);
-	
+	char* newbuf;
+
 	//On regarde si notre fichier existe ou pas en local
 	if (access(oldbuf, F_OK) != -1) {
 		//Le fichier existe : on ajoute la taille du fichier dans le nouveau buffer
@@ -155,23 +152,48 @@ void add_file_size(char* oldbuf, char* newbuf) {
 		//On realloue notre nouveau tableau de la taille du nom + 1 + longueur + 1
 		int longueur_tot = taille_nom + longueur + 2;
 		newbuf = malloc(longueur_tot);
-		newbuf[longueur_tot - 1] = '\0';
 
 		//On rajoute le nom et la taille dans notre nouveau buffer
 		memcpy(newbuf, oldbuf, taille_nom);
 		newbuf[taille_nom] = ' ';
 		sprintf(&newbuf[taille_nom + 1], "%li", taille);
-		
+	
+		newbuf[longueur_tot - 1] = '\0';
 	} else {
 		//Le fichier n'existe pas : on ajoute une taille de 0 dans le nouveau buffer
 		newbuf = malloc(taille_nom + 3);
-		newbuf[taille_nom + 2] = '\0';
-		newbuf[taille_nom + 1] = '0';
+
+		memcpy(newbuf, oldbuf, taille_nom);
+
 		newbuf[taille_nom] = ' ';
+		newbuf[taille_nom + 1] = '0';
+		newbuf[taille_nom + 2] = '\0';
 	}
+
+	return newbuf;
+
+	printf("newbuf : %s\n", newbuf);
 }
 
+void get_file(int* size_tot, int clientfd, char* filename) {	
+	int size_rec;
+	char buffer[MAX_FILE_SIZE + 1];
 
+	/*
+		Tant qu'on reçoit des données du serveur, on les recupère par
+		paquets de 1000 bytes via "recv" puis on les ajoute au 
+		fichier souhaité.
+	*/
+	
+	while ((size_rec = recv(clientfd, buffer, MAX_FILE_SIZE, 0)) > 0) {
+		buffer[size_rec] = '\0';
+
+		add_to_file(buffer, filename);
+
+		printf("Paquet de taille %i octets recu\n", size_rec);
+		(*size_tot) += size_rec;
+	}
+}
 
 
 

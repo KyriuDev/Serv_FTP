@@ -85,7 +85,7 @@ int main(int argc, char **argv)
 
 void fill_buff(int descriptor, char* buf, unsigned long* client_file_size) {
 	ssize_t taille = recv(descriptor, buf, MAX_NAME_LEN, 0);
-	
+
 	/*
 		On récupère aussi la taille du fichier (attention, ici on se base sur le
 		première caractère "espace" rencontré, et donc sur le principe que les
@@ -105,21 +105,26 @@ void fill_buff(int descriptor, char* buf, unsigned long* client_file_size) {
 
 			taille_str = malloc(taille - i);
 
+			printf("%li\n", taille - i);
+	
 			//On ajoute les caractères restants a notre taille
 
-			while (buf[i] != '\0') {
-				taille_str[i - taille] = buf[i];
+			int j = ++i;
+
+			while (i < taille) {
+				taille_str[i - j] = buf[i];
+				i++;
 			}
 
-			taille_str[taille - i - 1] = '\0';
+			taille_str[taille - j] = '\0';
 
 			//On fait un long de notre taille string
 
 			sscanf(taille_str, "%li", client_file_size);
-			
-			break;
 		}
 	}
+
+	printf("taille_str : %s\n", taille_str);
 
 	/*
 		Maintenant que la taille du fichier est récupérée, on coupe
