@@ -8,6 +8,7 @@
 #define PORT 2121
 #define MAX_SIZE_NAME 256
 #define MAX_FILE_SIZE 1000
+#define MAX_IP_ADDR_SIZE 15
 
 long int get_file_size(FILE* f);
 
@@ -20,6 +21,8 @@ void add_to_file(char*, char*);
 char* add_file_size(char* oldbuf);
 
 void strcut(char*, char*);
+
+int get_slave_fd(int clientfd);
 
 int main(int argc, char **argv)
 {
@@ -48,7 +51,10 @@ int main(int argc, char **argv)
      */
     printf("client connected to server OS\n");
 
-    Rio_readinitb(&rio, clientfd);
+	int nclientfd = get_slave_fd(clientfd);
+	Close(clientfd);
+    
+	Rio_readinitb(&rio, nclientfd);
 
     while (Fgets(buf, MAXLINE, stdin) != NULL) {
 		//On vérifie que la commande tapée au clavier est "correcte"
@@ -76,11 +82,16 @@ int main(int argc, char **argv)
 			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 		
 			//On envoie fbuf qui contient le nom de notre fichier et sa taille
-			Rio_writen(clientfd, fbuf, strlen(fbuf));
+			Rio_writen(nclientfd, fbuf, strlen(fbuf));
 	
+			/*
+				On doit récupérer l'ip + port de l'esclave que le maitre nous a transmis
+				puis ouvrir une connexion avec celui, i.e remplacer clientfd
+			*/
+
 			//On récupère notre fichier distant
 			int size_tot = 0;
-			get_file(&size_tot, clientfd, filename);
+			get_file(&size_tot, nclientfd, filename);
 
 			clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
 			uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
@@ -91,7 +102,7 @@ int main(int argc, char **argv)
 		}
     }
 
-    Close(clientfd);
+    Close(nclientfd);
     exit(0);
 }
 
@@ -193,6 +204,52 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 		printf("Paquet de taille %i octets recu\n", size_rec);
 		(*size_tot) += size_rec;
 	}
+}
+
+int get_slave_fd(int clientfd) {
+	char buffer[MAX_SIZE_NAME + 1];
+	char ip_address[MAX_IP_ADDR_SIZE + 1];
+
+	int size_rec = recv(clientfd, buffer, MAX_SIZE_NAME, 0);
+
+	if (size_rec == -1) {
+		printf("An error has occurred during the transaction. Please try again.\n");
+		return -1;
+	}
+
+	printf("taille reçue : %i\n", size_rec);
+
+	buffer[size_rec] = '\0';
+	
+	int i = 0;
+
+	while(buffer[i] != ':') {
+		ip_address[i] = buffer[i];
+		i++;
+	}
+
+	ip_address[i] = '\0';
+
+	char port[size_rec - i - 1];
+	int j = ++i;
+
+	while (buffer[i] != '\0') {
+		port[i - j] = buffer[i];
+		i++;
+	}
+
+	port[size_rec - j] = '\0';
+
+	unsigned long portl;
+
+	sscanf(port, "%li", &portl);
+
+	printf("ip transmise : |%s|\n", ip_address);
+	printf("port transmis : |%li|\n", portl);
+
+	int newfd = Open_clientfd(ip_address, portl);
+
+	return newfd;
 }
 
 

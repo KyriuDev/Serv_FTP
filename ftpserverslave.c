@@ -11,7 +11,7 @@
 #define PORT 2121
 #define MAX_NAME_LEN 256
 #define MAX_FILE_SIZE 1000
-#define NB_PROC 2
+#define NB_PROC_MAX 2
 #define PROC_UTIL 0
 #define PROC_INUTIL 1
 
@@ -44,26 +44,33 @@ void sigchild_handler(int sig) {
 
 int main(int argc, char **argv)
 {
-    int listenfd, connfd;
+    int listenfd, connfd, port;
 	int nb_proc_curr = 0;
     socklen_t clientlen;
     struct sockaddr_in clientaddr;
-    char client_ip_string[INET_ADDRSTRLEN];
+	char client_ip_string[INET_ADDRSTRLEN];
     char client_hostname[MAX_NAME_LEN];
 	char buf[MAX_NAME_LEN + 1];
 //    Process** processes = malloc(sizeof(void*) * NB_PROC);
   //  init_processes(processes);
 
+	if (argc != 2) {
+		fprintf(stderr, "usage: %s <port>\n", argv[0]);
+		exit(0);
+	}
+
+	port = atoi(argv[1]);
+
 	Signal(SIGCHLD, sigchild_handler);
 
     clientlen = (socklen_t) sizeof(clientaddr);
 
-    listenfd = Open_listenfd(PORT);
+    listenfd = Open_listenfd(port);
 
     while (1) {
 		connfd = Accept(listenfd, (SA*) &clientaddr, &clientlen);
 
-		if (nb_proc_curr++ < NB_PROC && Fork() == 0) {
+		if (nb_proc_curr++ < NB_PROC_MAX && Fork() == 0) {
     	    /* determine the name of the client */
         	Getnameinfo((SA *) &clientaddr, clientlen, client_hostname, MAX_NAME_LEN, 0, 0, 0);
 
@@ -182,8 +189,8 @@ void send_file(int connfd, char* buf) {
 		l'envoi (taille == 0)
 	*/
 
-	//unsigned long file_size = get_file_size(my_file); //TODO
-	unsigned long file_size = get_file_size(my_file) - taille_fichier_client;
+	unsigned long file_size = get_file_size(my_file); //TODO
+	//unsigned long file_size = get_file_size(my_file) - taille_fichier_client;
 	unsigned long file_size_rem = file_size;
 
 	printf("\nTaille du fichier demandé (- sa taille côté client) : %li\n\n", file_size);
@@ -200,7 +207,7 @@ void send_file(int connfd, char* buf) {
 	
 	//On se déplace dans le fichier du nombre d'octets déjà lus et envoyés au client
 
-	fseek(my_file, taille_fichier_client, SEEK_SET); //TODO
+	//fseek(my_file, taille_fichier_client, SEEK_SET); //TODO
 
 	/*	
 		Tant qu'on n'a pas lu tout le fichier, on continue a le parcourir
