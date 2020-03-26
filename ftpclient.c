@@ -18,11 +18,15 @@ int check_buffer(char*);
 
 void add_to_file(char*, char*);
 
-char* add_file_size(char* oldbuf);
+char* add_file_size(char* oldbuf, char* interrupted_file);
 
 void strcut(char*, char*);
 
 int get_slave_fd(int clientfd);
+
+void get_interrupted_file(char*, char*);
+
+int is_not_in_list(char*, char*);
 
 int main(int argc, char **argv)
 {
@@ -56,7 +60,36 @@ int main(int argc, char **argv)
     
 	Rio_readinitb(&rio, nclientfd);
 
-    while (Fgets(buf, MAXLINE, stdin) != NULL) {
+	//On recupère la liste de nos fichiers interrompus (s'il y en a)
+
+	char backup_name[8] = ".backup";
+	backup_name[7] = '\0';
+
+	char interrupted_file[MAX_SIZE_NAME + 1];
+	interrupted_file[MAX_SIZE_NAME] = '\0';
+	get_interrupted_file(backup_name, interrupted_file);
+
+    while (1) {
+		//On récupère la commande tapée au clavier
+
+		char* val = Fgets(buf, MAXLINE, stdin);
+	
+		if (val == NULL) {
+			/*
+				Si Fgets renvoie NULL, soit on a atteint la fin de la saisie clavier,
+				soit on a eu une erreur (interruption par exemple)
+			*/
+
+			if (errno == EINTR) {
+				//On a eu une interruption (erreur)
+				printf("On a eu une interruption !\n");
+				break;
+			} else {
+				//On a atteint la fin de la saisie clavier (standard)
+				break;
+			}
+		}
+
 		//On vérifie que la commande tapée au clavier est "correcte"
 
 		if (check_buffer(buf)) {
@@ -71,8 +104,23 @@ int main(int argc, char **argv)
 			strcut(buf, filename);
 
 			//printf("filename : %s\n", filename);
-			
-			char* fbuf = add_file_size(filename);
+
+			/*
+				On crée un fichier temporaire qui contient le nom du fichier demandé
+				(ou on ajoute au fichier temporaire si celui-ci existe déjà) sauf si
+				le nom est déjà dans la liste
+			*/
+
+			printf("on passe la\n");
+
+			if (is_not_in_list(filename, interrupted_file) == 1) {
+				printf("mais pas la\n");
+				add_to_file(filename, backup_name);
+			}
+
+			//On ajoute la taille du fichier a notre requete
+
+			char* fbuf = add_file_size(filename, interrupted_file);
 
 			//printf("buffer : %s\n", fbuf);
 			//printf("size buffer : %li\n", strlen(fbuf));
@@ -84,11 +132,6 @@ int main(int argc, char **argv)
 			//On envoie fbuf qui contient le nom de notre fichier et sa taille
 			Rio_writen(nclientfd, fbuf, strlen(fbuf));
 	
-			/*
-				On doit récupérer l'ip + port de l'esclave que le maitre nous a transmis
-				puis ouvrir une connexion avec celui, i.e remplacer clientfd
-			*/
-
 			//On récupère notre fichier distant
 			int size_tot = 0;
 			get_file(&size_tot, nclientfd, filename);
@@ -97,10 +140,16 @@ int main(int argc, char **argv)
 			uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
 
 			printf("%i bytes reçu en %li µsecondes (%f Mo/s)\n", size_tot, delta, ((double) size_tot / (double) delta));
+			remove(backup_name);
 		} else {
 			printf("La commande renseignee n'a pas ete reconnue par le systeme. Veuillez reessayer\n");
 		}
     }
+
+	/*
+		On supprime notre fichier (ou au moins la ligne qu'on vient d'ecrire)
+		puisque le transfert s'est bien passé si on arrive ici.
+	*/
 
     Close(nclientfd);
     exit(0);
@@ -121,6 +170,7 @@ void add_to_file(char* contain, char* filename) {
 	
 	if (f != NULL) {
 		uint64_t to_write_size = strlen(contain);
+		printf("Valeur contain dans add_to_file : |%s|\n", contain);
 		fwrite(contain, to_write_size, 1, f);
 	} else {
 		printf("Une erreur s'est produite lors de l'ouverture du fichier.\n");
@@ -145,33 +195,80 @@ long int get_file_size(FILE* f) {
     return size;
 }
 
-char* add_file_size(char* oldbuf) {
+char* add_file_size(char* oldbuf, char* interrupted_file) {
 	//On calcule la taille du nom du fichier
-			
 	unsigned int taille_nom = strlen(oldbuf);
 	char* newbuf;
 
-	//On regarde si notre fichier existe ou pas en local
-	if (access(oldbuf, F_OK) != -1) {
-		//Le fichier existe : on ajoute la taille du fichier dans le nouveau buffer
-		FILE* f = fopen(oldbuf, "r");
-		long int taille = get_file_size(f);
+	//On vérifie si notre fichier est dans la liste des fichiers interrompus
+	if (strcmp(oldbuf, interrupted_file) == 0) {
+		//On a trouvé un fichier de même nom dans la liste des fichiers interrompus
 
-		//On récupère la "longueur" de notre long int, i.e. son nombre de caractères
-		int longueur = (taille == 0 ? 1 : (int) (log10(taille) + 1));
+		//On regarde si notre fichier existe ou pas en local
+		if (access(oldbuf, F_OK) != -1) {
+			//Le fichier existe : on ajoute la taille du fichier dans le nouveau buffer
+			FILE* f = fopen(oldbuf, "r");
+			long int taille = get_file_size(f);
+			fclose(f);
 
-		//On realloue notre nouveau tableau de la taille du nom + 1 + longueur + 1
-		int longueur_tot = taille_nom + longueur + 2;
-		newbuf = malloc(longueur_tot);
+			//On récupère la "longueur" de notre long int, i.e. son nombre de caractères
+			int longueur = (taille == 0 ? 1 : (int) (log10(taille) + 1));
 
-		//On rajoute le nom et la taille dans notre nouveau buffer
-		memcpy(newbuf, oldbuf, taille_nom);
-		newbuf[taille_nom] = ' ';
-		sprintf(&newbuf[taille_nom + 1], "%li", taille);
-	
-		newbuf[longueur_tot - 1] = '\0';
+			//On realloue notre nouveau tableau de la taille du nom + 1 + longueur + 1
+			int longueur_tot = taille_nom + longueur + 2;
+			newbuf = malloc(longueur_tot);
+
+			//On rajoute le nom et la taille dans notre nouveau buffer
+			memcpy(newbuf, oldbuf, taille_nom);
+			newbuf[taille_nom] = ' ';
+			sprintf(&newbuf[taille_nom + 1], "%li", taille);
+
+			newbuf[longueur_tot - 1] = '\0';
+		} else {
+			/*
+				Le fichier n'existe pas : on ajoute une taille de 0 dans le nouveau buffer
+				NB : Normalement, on ne passe ici, hormis si on a supprimé à la main le fichier
+				concerné, et qu'il n'a donc pas été supprimé du .backup
+			*/
+
+			newbuf = malloc(taille_nom + 3);
+
+			memcpy(newbuf, oldbuf, taille_nom);
+
+			newbuf[taille_nom] = ' ';
+			newbuf[taille_nom + 1] = '0';
+			newbuf[taille_nom + 2] = '\0';
+		}
 	} else {
-		//Le fichier n'existe pas : on ajoute une taille de 0 dans le nouveau buffer
+		/*
+			Si le nom de notre fichier n'est pas dans la liste des fichiers
+			interrompus, on part du principe que même si on possède un fichier en
+			local qui a le même nom, on veut récupérer le fichier distant, donc
+			on indique une taille de 0 pour notre fichier local afin qu'il soit
+			écrasé en local
+		*/
+		
+		/*
+		TODO Commenter pour tester en local (sinon on supprime systematiquement
+		les fichiers que l'on souhaite récupérer
+		*/
+
+		/*
+		if (access(oldbuf, F_OK) != -1) {
+			//	Si on arrive là, c'est que notre fichier existe en local,
+			//	mais qu'on veut récupérer la version distante, donc on
+			//	supprime la version locale.
+
+			int removed = remove(oldbuf);
+
+			if (removed != 0) {
+				printf("Une erreur s'est produite lors de la suppression du fichier avant récupération.\n");
+			}
+		}
+		*/
+
+		//Fin TODO
+
 		newbuf = malloc(taille_nom + 3);
 
 		memcpy(newbuf, oldbuf, taille_nom);
@@ -181,9 +278,9 @@ char* add_file_size(char* oldbuf) {
 		newbuf[taille_nom + 2] = '\0';
 	}
 
-	return newbuf;
-
 	printf("newbuf : %s\n", newbuf);
+	
+	return newbuf;
 }
 
 void get_file(int* size_tot, int clientfd, char* filename) {	
@@ -252,8 +349,37 @@ int get_slave_fd(int clientfd) {
 	return newfd;
 }
 
+void get_interrupted_file(char* backupname, char* interrupted_file) {
+	if (access(backupname, F_OK) != -1) {
+		//Le fichier existe donc on récupère ses données 
+		FILE* f = fopen(backupname, "r");
+		
+		struct stat stats;
+		stat(backupname, &stats);
 
+		fgets(interrupted_file, stats.st_size, f);
 
+		interrupted_file[stats.st_size] = '\0';
 
+		fclose(f);
+	} else {
+		//Le fichier n'existe pas
+		interrupted_file[0] = '\0';
+	}
 
+	printf("fichier interrompu : |%s|\n", interrupted_file);
+}
 
+int is_not_in_list(char* filename, char* interrupted_file) {
+	int not_in = 1;
+
+	if (strcmp(filename, interrupted_file) == 0) {
+		not_in = 0;
+	}
+
+	return not_in;
+}
+
+/*
+	NB : Lors des tests en local, pensez à commenter les lignes mentionnées "TODO"
+*/
