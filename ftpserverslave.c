@@ -6,7 +6,7 @@
 #include "unistd.h"
 #include <math.h>
 #include <stdio.h>
-#include <poll.h>
+#include <stdlib.h>
 
 #define PORT 2121
 #define MAX_NAME_LEN 256
@@ -20,7 +20,7 @@ typedef struct {
     unsigned int utilisable;
 } Process;
 
-void send_file(int, char*);
+void send_file(char*, char*, int);
 
 FILE* get_file(char*);
 
@@ -28,9 +28,11 @@ long int get_file_size(FILE* f);
 
 void init_processes(Process**);
 
-void fill_buff(int, char*, unsigned long*);
+void fill_buff(char*, char*, unsigned long*);
 
 Process* get_usable_process(Process**);
+
+void send_ls_result(int);
 
 void sigchild_handler(int sig) {
     int status;
@@ -79,22 +81,52 @@ int main(int argc, char **argv)
 
         	printf("server connected to %s (%s)\n", client_hostname, client_ip_string);
 
-			send_file(connfd, buf);
+			/*
+				Dès qu'une connexion est établie avec un client, on rentre dans un
+				while infini dont on ne sort que lorsque le client envoie la commande
+				"bye", indiquant qu'il a terminé sa transaction
+			*/
 
+			char buffer[MAX_NAME_LEN + 1];
+			
+			while(1) {
+				ssize_t taille = recv(connfd, buffer, MAX_NAME_LEN, 0);
+				buffer[taille] = '\0';
+
+				if (taille != 0) {
+					if (strcmp("bye", buffer) == 0) {
+						//On ferme proprement la connexion
+						char* close_msg = "connexion closed.";
+						send(connfd, close_msg, strlen(close_msg), 0);
+						break;
+					} else if (strcmp("ls", buffer) == 0) {
+						//On renvoie les fichiers du dossier courant
+						system("ls > .files.txt");
+						send_ls_result(connfd);
+					} else {
+						//On renvoie le fichier demandé s'il existe, un message d'erreur sinon
+						send_file(buffer, buf, connfd);
+					}
+				}
+
+			}
+
+			printf("On termine dans le fils\n");
 			close(connfd);
 		}
-    
+
 		close(connfd);
 	}
 
     exit(0);
 }
 
-void fill_buff(int descriptor, char* buf, unsigned long* client_file_size) {
-	ssize_t taille = recv(descriptor, buf, MAX_NAME_LEN, 0);
+void fill_buff(char* requete, char* buf, unsigned long* client_file_size) {
+	ssize_t taille = strlen(requete);
+	memcpy(buf, requete, strlen(requete));
 
 	/*
-		On récupère aussi la taille du fichier (attention, ici on se base sur le
+		On récupère auss/i la taille du fichier (attention, ici on se base sur le
 		première caractère "espace" rencontré, et donc sur le principe que les
 		noms de fichiers demandés ne contiennent pas d'espaces.
 	*/
@@ -112,8 +144,6 @@ void fill_buff(int descriptor, char* buf, unsigned long* client_file_size) {
 
 			taille_str = malloc(taille - i);
 
-			printf("%li\n", taille - i);
-	
 			//On ajoute les caractères restants a notre taille
 
 			int j = ++i;
@@ -131,8 +161,6 @@ void fill_buff(int descriptor, char* buf, unsigned long* client_file_size) {
 		}
 	}
 
-	printf("taille_str : %s\n", taille_str);
-
 	/*
 		Maintenant que la taille du fichier est récupérée, on coupe
 		le buffer contenant le nom du fichier à l'indice du caractère
@@ -140,8 +168,6 @@ void fill_buff(int descriptor, char* buf, unsigned long* client_file_size) {
 	*/
 
 	buf[taille - strlen(taille_str) - 1] = '\0';
-
-	printf("Nom final de mon fichier : %s\n", buf);
 }
 
 FILE* get_file(char* buf) {
@@ -166,7 +192,7 @@ long int get_file_size(FILE* f) {
 	return size;
 }
 
-void send_file(int connfd, char* buf) {
+void send_file(char* requete, char* buf, int connfd) {
 	/*
 		On récupère le nom du fichier transmis, sa taille côté client, et
 		on ouvre le fichier côté serveur.
@@ -175,7 +201,7 @@ void send_file(int connfd, char* buf) {
 
 	unsigned long taille_fichier_client;
 	
-	fill_buff(connfd, buf, &taille_fichier_client);
+	fill_buff(requete, buf, &taille_fichier_client);
 	FILE* my_file = get_file(buf);
 		
 	if (my_file == NULL) {
@@ -192,6 +218,19 @@ void send_file(int connfd, char* buf) {
 	unsigned long file_size = get_file_size(my_file); //TODO
 	//unsigned long file_size = get_file_size(my_file) - taille_fichier_client;
 	unsigned long file_size_rem = file_size;
+
+	/*
+		Pour ne plus fermer le descripteur de fichier a chaque fin de transaction,
+		on va baser la lecture sur la taille du fichier et plus sur le resultat de
+		recv() côté client, donc on doit envoyer la taille du fichier a recuperer
+		au client, ce qui deviendra notre base d'arret
+	*/
+
+	int longueur = (file_size == 0 ? 1 : (int) (log10(file_size) + 1));
+	char longueur_str[longueur + 1];
+
+	sprintf(longueur_str, "%li", file_size);
+	longueur_str[longueur] = '\0';
 
 	printf("\nTaille du fichier demandé (- sa taille côté client) : %li\n\n", file_size);
 
@@ -216,7 +255,36 @@ void send_file(int connfd, char* buf) {
 	*/
 
 	while(file_size_rem > 0) {
-		fread(contenu, MAX_FILE_SIZE, 1, my_file);
+		/*
+			Si c'est le premier paquet transmis, il faut lui ajouter la
+			taille du fichier transmis au début, ainsi qu'un caractère spécial
+			(ici '\n') pour situer la fin de la taille
+		*/
+
+		if (file_size_rem == file_size) {
+			/*
+				La taille totale vaut la taille restante a envoyer, donc
+				il s'agit de la première itération
+			*/
+
+			if (longueur < MAX_FILE_SIZE - 1) {
+				//On met la longueur dans notre premier paquet
+				for (int i = 0; i < longueur; i++) {
+					contenu[i] = longueur_str[i];
+				}
+
+				//On ajoute notre caractère '\n'
+				contenu[longueur] = '\n';
+
+				//On ajoute le contenu de notre fichier au buffer
+				fread(&(contenu[longueur + 1]), MAX_FILE_SIZE - longueur - 1, 1, my_file);
+			} else {
+				printf("Une taille de fichier qui contient plus de 999 chiffres ?????\n");
+				return;
+			}
+		} else {
+			fread(contenu, MAX_FILE_SIZE, 1, my_file);
+		}
 
 		/*
 			Si la taille "restante" du fichier est inférieur à la taille max du buffer
@@ -225,9 +293,9 @@ void send_file(int connfd, char* buf) {
 		*/
 
 		if (file_size_rem < MAX_FILE_SIZE) {
-			contenu[file_size_rem] = '\0';
-			int tailleTransmise = send(connfd, contenu, file_size_rem, 0);
-			
+			contenu[file_size_rem + longueur + 1] = '\0';
+			int tailleTransmise = send(connfd, contenu, file_size_rem + longueur + 1, 0);
+		
 			/*
 				Si send renvoie -1, on a un problème (on simplifiera ici en admettant
 				que la valeur -1 est toujours synonyme d'un problème côté client) donc
@@ -239,8 +307,8 @@ void send_file(int connfd, char* buf) {
 				break;
 			}
 
-			sent_size += tailleTransmise;
-			file_size_rem -= tailleTransmise;
+			sent_size += tailleTransmise - longueur - 1;
+			file_size_rem -= tailleTransmise - longueur - 1;
 		} 
 		
 		/*
@@ -281,6 +349,45 @@ void send_file(int connfd, char* buf) {
 	} else {
 		printf("La transaction s'est effectuée sans problème\n");
 	}
+}
+
+void send_ls_result(int connfd) {
+	/*
+		On ouvre notre fichier contenant le résultat de notre "ls"
+		et on met le résultat dans une string, avec un '\n' entre
+		chaque nom de fichier
+	*/
+
+	FILE* f = fopen(".files.txt", "r");
+	struct stat stats;
+	stat(".files.txt", &stats);
+
+	char ls_inlined[stats.st_size];
+
+	fread(ls_inlined, stats.st_size - 1, 1, f);
+
+	ls_inlined[stats.st_size] = '\0';
+
+	printf("ls value : |%s|\n", ls_inlined);
+
+	//On doit ajouter la "taille" de notre "ls" au debut de notre string
+	
+	int longueur = ((stats.st_size - 1) == 0 ? 1 : (int) (log10(stats.st_size - 1) + 1));
+	char longueur_str[longueur + 2];
+
+	sprintf(longueur_str, "%li", (stats.st_size - 1));
+	longueur_str[longueur] = '\n';
+	longueur_str[longueur + 1] = '\0';
+
+	printf("longueur : |%s|\n", longueur_str);
+
+	char ls_with_size[stats.st_size + longueur + 1];
+
+	memcpy(ls_with_size, longueur_str, longueur + 1);
+	memcpy(&(ls_with_size[longueur + 1]), ls_inlined, stats.st_size - 1);
+	ls_with_size[stats.st_size + longueur] = '\0';
+
+	printf("\nls ready : |%s|\n", ls_with_size);
 }
 
 /*

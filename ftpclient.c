@@ -9,12 +9,13 @@
 #define MAX_SIZE_NAME 256
 #define MAX_FILE_SIZE 1000
 #define MAX_IP_ADDR_SIZE 15
+#define CONNEXION_CLOSED "connexion closed."
 
 long int get_file_size(FILE* f);
 
 void get_file(int*, int, char*);
 
-int check_buffer(char*);
+int command_in_list(char*);
 
 void add_to_file(char*, char*);
 
@@ -66,7 +67,6 @@ int main(int argc, char **argv)
 	backup_name[7] = '\0';
 
 	char interrupted_file[MAX_SIZE_NAME + 1];
-	interrupted_file[MAX_SIZE_NAME] = '\0';
 	get_interrupted_file(backup_name, interrupted_file);
 
     while (1) {
@@ -86,61 +86,84 @@ int main(int argc, char **argv)
 				break;
 			} else {
 				//On a atteint la fin de la saisie clavier (standard)
-				break;
 			}
 		}
 
+		buf[strlen(buf) - 1] = '\0';
+
 		//On vérifie que la commande tapée au clavier est "correcte"
 
-		if (check_buffer(buf)) {
-			/*
-				On supprime le "get" du buffer pour ne garder que le nom du fichier demandé.
-				On ajoute au buffer la taille du fichier, s'il existe déjà en interne.
-				Ainsi, si une des transactions précédentes s'est mal passée, on peut reprendre
-				au bon endroit (et ne pas tout recommencer).
-			*/
+		if (command_in_list(buf)) {
+			if (strcmp(buf, "bye") == 0) {
+				Rio_writen(nclientfd, buf, strlen(buf));
+				
+				printf("sizeof close message : %li\n", sizeof(CONNEXION_CLOSED));
 
-			char filename[strlen(buf) - 4];
-			strcut(buf, filename);
+				char close_message[sizeof(CONNEXION_CLOSED) + 1];
 
-			//printf("filename : %s\n", filename);
+				recv(nclientfd, close_message, sizeof(CONNEXION_CLOSED), 0);
 
-			/*
-				On crée un fichier temporaire qui contient le nom du fichier demandé
-				(ou on ajoute au fichier temporaire si celui-ci existe déjà) sauf si
-				le nom est déjà dans la liste
-			*/
+				close_message[sizeof(CONNEXION_CLOSED)] = '\0';
 
-			printf("on passe la\n");
+				printf("close message : |%s|\n", close_message);
 
-			if (is_not_in_list(filename, interrupted_file) == 1) {
-				printf("mais pas la\n");
-				add_to_file(filename, backup_name);
-			}
+				if (strcmp(close_message, CONNEXION_CLOSED) == 0) {
+					printf("Distant server has been shutdowned well. Client closing.\n");
+					exit(0);
+				} else {
+					printf("A problem has occurred during server shutdowning. Please try again.\n");
+				}
+			} else if (strcmp(buf, "ls") == 0) {
+				Rio_writen(nclientfd, buf, strlen(buf));
+			} else {
+				/*
+					On supprime le "get" du buffer pour ne garder que le nom du fichier demandé.
+					On ajoute au buffer la taille du fichier, s'il existe déjà en interne.
+					Ainsi, si une des transactions précédentes s'est mal passée, on peut reprendre
+					au bon endroit (et ne pas tout recommencer).
+				*/
 
-			//On ajoute la taille du fichier a notre requete
+				char filename[strlen(buf) - 4];
+				strcut(buf, filename);
 
-			char* fbuf = add_file_size(filename, interrupted_file);
+				//printf("filename : %s\n", filename);
 
-			//printf("buffer : %s\n", fbuf);
-			//printf("size buffer : %li\n", strlen(fbuf));
-			//printf("last : %i\n", fbuf[strlen(fbuf)]);
+				/*
+					On crée un fichier temporaire qui contient le nom du fichier demandé
+					(ou on ajoute au fichier temporaire si celui-ci existe déjà) sauf si
+					le nom est déjà dans la liste
+				*/
+
+				if (is_not_in_list(filename, interrupted_file) == 1) {
+					add_to_file(filename, backup_name);
+				}
+
+				//On ajoute la taille du fichier a notre requete
+
+				char* fbuf = add_file_size(filename, interrupted_file);
+
+				//printf("buffer : %s\n", fbuf);
+				//printf("size buffer : %li\n", strlen(fbuf));
+				//printf("last : %i\n", fbuf[strlen(fbuf)]);
+				
+				struct timespec stop, start;
+				clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 			
-			struct timespec stop, start;
-			clock_gettime(CLOCK_MONOTONIC_RAW, &start);
-		
-			//On envoie fbuf qui contient le nom de notre fichier et sa taille
-			Rio_writen(nclientfd, fbuf, strlen(fbuf));
-	
-			//On récupère notre fichier distant
-			int size_tot = 0;
-			get_file(&size_tot, nclientfd, filename);
+				//On envoie fbuf qui contient le nom de notre fichier et sa taille
+				Rio_writen(nclientfd, fbuf, strlen(fbuf));
 
-			clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
-			uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
+				//On récupère notre fichier distant
+				int size_tot = 0;
 
-			printf("%i bytes reçu en %li µsecondes (%f Mo/s)\n", size_tot, delta, ((double) size_tot / (double) delta));
-			remove(backup_name);
+				get_file(&size_tot, nclientfd, filename);
+
+				clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
+				uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
+
+				printf("\n%i bytes reçu en %li µsecondes (%f Mo/s)\n\n", size_tot, delta, ((double) size_tot / (double) delta));
+				
+				remove(backup_name);
+			}
 		} else {
 			printf("La commande renseignee n'a pas ete reconnue par le systeme. Veuillez reessayer\n");
 		}
@@ -155,10 +178,12 @@ int main(int argc, char **argv)
     exit(0);
 }
 
-int check_buffer(char* buf) {
+int command_in_list(char* buf) {
 	int buf_valid = 0;
+
+	printf("commande : |%s|\n", buf);
 	
-	if (strncmp(buf, "get ", 4) == 0) {
+	if (strncmp(buf, "get ", 4) == 0 || strcmp(buf, "bye") == 0 || strcmp(buf, "ls") == 0) {
 		buf_valid = 1;
 	}
 
@@ -167,10 +192,9 @@ int check_buffer(char* buf) {
 
 void add_to_file(char* contain, char* filename) {
 	FILE* f = fopen(filename, "a");
-	
+
 	if (f != NULL) {
 		uint64_t to_write_size = strlen(contain);
-		printf("Valeur contain dans add_to_file : |%s|\n", contain);
 		fwrite(contain, to_write_size, 1, f);
 	} else {
 		printf("Une erreur s'est produite lors de l'ouverture du fichier.\n");
@@ -250,7 +274,7 @@ char* add_file_size(char* oldbuf, char* interrupted_file) {
 		
 		/*
 		TODO Commenter pour tester en local (sinon on supprime systematiquement
-		les fichiers que l'on souhaite récupérer
+		les fichiers que l'on souhaite récupérer)
 		*/
 
 		/*
@@ -278,12 +302,11 @@ char* add_file_size(char* oldbuf, char* interrupted_file) {
 		newbuf[taille_nom + 2] = '\0';
 	}
 
-	printf("newbuf : %s\n", newbuf);
-	
 	return newbuf;
 }
 
 void get_file(int* size_tot, int clientfd, char* filename) {	
+	long file_size = -1;
 	int size_rec;
 	char buffer[MAX_FILE_SIZE + 1];
 
@@ -293,13 +316,40 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 		fichier souhaité.
 	*/
 	
-	while ((size_rec = recv(clientfd, buffer, MAX_FILE_SIZE, 0)) > 0) {
-		buffer[size_rec] = '\0';
+	while ((*size_tot) != file_size) {
+		size_rec = recv(clientfd, buffer, MAX_FILE_SIZE, 0);
+		
+		if (file_size == -1) {
+			//Première itération de la boucle : on récupère la taille du fichier distant
+			char size[MAX_FILE_SIZE + 1];
+			unsigned int i = 0;
 
-		add_to_file(buffer, filename);
+			while (i < size_rec && buffer[i] != '\n') {
+				size[i] = buffer[i];
+				i++;
+			}
 
-		printf("Paquet de taille %i octets recu\n", size_rec);
-		(*size_tot) += size_rec;
+			size[i] = '\0';
+
+			sscanf(size, "%li", &file_size);
+
+			char nbuf[MAX_FILE_SIZE - i];
+			int real_size = size_rec - i - 1;
+			memcpy(nbuf, &(buffer[i + 1]), real_size);
+			nbuf[real_size] = '\0';
+
+			add_to_file(nbuf, filename);
+
+			printf("Paquet de taille %i octets reçu\n", real_size);
+			(*size_tot) += real_size;
+		} else {	
+			buffer[size_rec] = '\0';
+
+			add_to_file(buffer, filename);
+
+			printf("Paquet de taille %i octets recu\n", size_rec);
+			(*size_tot) += size_rec;
+		}
 	}
 }
 
@@ -313,8 +363,6 @@ int get_slave_fd(int clientfd) {
 		printf("An error has occurred during the transaction. Please try again.\n");
 		return -1;
 	}
-
-	printf("taille reçue : %i\n", size_rec);
 
 	buffer[size_rec] = '\0';
 	
@@ -342,7 +390,7 @@ int get_slave_fd(int clientfd) {
 	sscanf(port, "%li", &portl);
 
 	printf("ip transmise : |%s|\n", ip_address);
-	printf("port transmis : |%li|\n", portl);
+	printf("port transmis : |%li|\n\n", portl);
 
 	int newfd = Open_clientfd(ip_address, portl);
 
@@ -357,17 +405,23 @@ void get_interrupted_file(char* backupname, char* interrupted_file) {
 		struct stat stats;
 		stat(backupname, &stats);
 
+		printf("taille fichier corrompu : %li\n", stats.st_size * 2 );
+
 		fgets(interrupted_file, stats.st_size, f);
+
+		for (int i = 0; i < stats.st_size; i++) {
+			printf("char actuel : %c\n", interrupted_file[i]);
+			printf("char (int) : %i\n", interrupted_file[i]);
+		}
 
 		interrupted_file[stats.st_size] = '\0';
 
 		fclose(f);
+		printf("\nfichier interrompu : |%s|\n\n", interrupted_file);
 	} else {
 		//Le fichier n'existe pas
 		interrupted_file[0] = '\0';
 	}
-
-	printf("fichier interrompu : |%s|\n", interrupted_file);
 }
 
 int is_not_in_list(char* filename, char* interrupted_file) {
