@@ -29,6 +29,10 @@ void get_interrupted_file(char*, char*);
 
 int is_not_in_list(char*, char*);
 
+void print_ls_pwd_result(int);
+
+void put_file_on_server(int, char*);
+
 int main(int argc, char **argv)
 {
     int clientfd;
@@ -56,6 +60,8 @@ int main(int argc, char **argv)
      */
     printf("client connected to server OS\n");
 
+	//On envoie au maitre un "0" pour dire qu'on est client et pas esclave
+	Rio_writen(clientfd, "0", 1);
 	int nclientfd = get_slave_fd(clientfd);
 	Close(clientfd);
     
@@ -97,15 +103,11 @@ int main(int argc, char **argv)
 			if (strcmp(buf, "bye") == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
 				
-				printf("sizeof close message : %li\n", sizeof(CONNEXION_CLOSED));
-
 				char close_message[sizeof(CONNEXION_CLOSED) + 1];
 
 				recv(nclientfd, close_message, sizeof(CONNEXION_CLOSED), 0);
 
 				close_message[sizeof(CONNEXION_CLOSED)] = '\0';
-
-				printf("close message : |%s|\n", close_message);
 
 				if (strcmp(close_message, CONNEXION_CLOSED) == 0) {
 					printf("Distant server has been shutdowned well. Client closing.\n");
@@ -113,8 +115,55 @@ int main(int argc, char **argv)
 				} else {
 					printf("A problem has occurred during server shutdowning. Please try again.\n");
 				}
-			} else if (strcmp(buf, "ls") == 0) {
+			} else if (strcmp(buf, "ls") == 0 ||strcmp(buf, "pwd") == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
+				
+				print_ls_pwd_result(nclientfd);
+			} else if (strncmp(buf, "cd", 2) == 0) {
+				Rio_writen(nclientfd, buf, strlen(buf));
+			
+				char buff[2];
+				recv(nclientfd, buff, 2, 0);
+
+				if (strcmp(buff, "0") == 0) {
+					printf("Le dossier courant a bien été modifié sur le serveur.\n\n");
+				} else {
+					printf("Une erreur est survenue lors de la modification du dossier courant sur le serveur. Veuillez réessayer.\n");
+				}
+			} else if (strncmp(buf, "mkdir ", 6) == 0) {
+				Rio_writen(nclientfd, buf, strlen(buf));
+
+				char buff[2];
+				recv(nclientfd, buff, 2, 0);
+
+				if (strcmp(buff, "0") == 0) {
+					printf("Le dossier a bien été créé sur le serveur.\n\n");
+				} else {
+					printf("Une erreur est survenue lors de la création du dossier sur le serveur. Veuillez réessayer.\n");
+				}
+			} else if (strncmp(buf, "rm ", 3) == 0) {
+				Rio_writen(nclientfd, buf, strlen(buf));
+
+				char buff[2];
+				recv(nclientfd, buff, 2, 0);
+				char* msgr;
+				char* msgf;
+
+				if (strncmp(buf, "rm -r ", 6) == 0) {
+					msgr = "Le dossier ainsi que tous ses fichiers a bien été supprimé.\n\n";
+					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez réessayer\n\n";
+				} else {
+					msgr = "Le fichier a bien été supprimé.\n\n";
+					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez réessayer.\n\n";
+				}
+
+				if (strcmp(buff, "0") == 0) {
+					printf("%s\n", msgr);
+				} else {
+					printf("%s\n", msgf);
+				}
+			} else if (strncmp(buf, "put ", 4) == 0) {
+				put_file_on_server(nclientfd, buf);
 			} else {
 				/*
 					On supprime le "get" du buffer pour ne garder que le nom du fichier demandé.
@@ -165,7 +214,7 @@ int main(int argc, char **argv)
 				remove(backup_name);
 			}
 		} else {
-			printf("La commande renseignee n'a pas ete reconnue par le systeme. Veuillez reessayer\n");
+			printf("La commande renseignée n'a pas été reconnue pas le système. Veuillez recommencer avec l'une des commandes suivante :\n- get <filename>\n- cd <path>\n- pwd\n- ls\n- mkdir\n- rm <dependencies> <filename>\n- put <filename>\n");
 		}
     }
 
@@ -181,9 +230,15 @@ int main(int argc, char **argv)
 int command_in_list(char* buf) {
 	int buf_valid = 0;
 
-	printf("commande : |%s|\n", buf);
-	
-	if (strncmp(buf, "get ", 4) == 0 || strcmp(buf, "bye") == 0 || strcmp(buf, "ls") == 0) {
+	if (strncmp(buf, "get ", 4) == 0 ||
+		strcmp(buf, "bye") == 0 ||
+		strcmp(buf, "ls") == 0 ||
+		strcmp(buf, "pwd") == 0 ||
+		strncmp(buf, "cd", 2) == 0 ||
+		strncmp(buf, "mkdir ", 6) == 0 ||
+		strncmp(buf, "rm ", 3) == 0 ||
+		strncmp(buf, "put ", 4) == 0)
+	{
 		buf_valid = 1;
 	}
 
@@ -311,7 +366,7 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 	char buffer[MAX_FILE_SIZE + 1];
 
 	/*
-		Tant qu'on reçoit des données du serveur, on les recupère par
+		tant qu'on reçoit des données du serveur, on les recupère par
 		paquets de 1000 bytes via "recv" puis on les ajoute au 
 		fichier souhaité.
 	*/
@@ -320,7 +375,7 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 		size_rec = recv(clientfd, buffer, MAX_FILE_SIZE, 0);
 		
 		if (file_size == -1) {
-			//Première itération de la boucle : on récupère la taille du fichier distant
+			//première itération de la boucle : on récupère la taille du fichier distant
 			char size[MAX_FILE_SIZE + 1];
 			unsigned int i = 0;
 
@@ -340,14 +395,14 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 
 			add_to_file(nbuf, filename);
 
-			printf("Paquet de taille %i octets reçu\n", real_size);
+			printf("paquet de taille %i octets reçu\n", real_size);
 			(*size_tot) += real_size;
 		} else {	
 			buffer[size_rec] = '\0';
 
 			add_to_file(buffer, filename);
 
-			printf("Paquet de taille %i octets recu\n", size_rec);
+			printf("paquet de taille %i octets recu\n", size_rec);
 			(*size_tot) += size_rec;
 		}
 	}
@@ -432,6 +487,140 @@ int is_not_in_list(char* filename, char* interrupted_file) {
 	}
 
 	return not_in;
+}
+
+void print_ls_pwd_result(int descriptor) {
+	long size_tot = 0;
+	long file_size = -1;
+	int size_rec;
+	char buffer[MAX_FILE_SIZE + 1];
+	char* res;
+
+	/*
+		tant qu'on reçoit des données du serveur, on les recupère par
+		paquets de 1000 bytes via "recv" puis on les ajoute au 
+		fichier souhaité.
+	*/
+	
+	while (size_tot != file_size) {
+		size_rec = recv(descriptor, buffer, MAX_FILE_SIZE, 0);
+
+		if (file_size == -1) {
+			//première itération de la boucle : on récupère la taille du fichier distant
+			char size[MAX_FILE_SIZE + 1];
+			unsigned int i = 0;
+
+			while (i < size_rec && buffer[i] != '\n') {
+				size[i] = buffer[i];
+				i++;
+			}
+
+			size[i] = '\0';
+
+			sscanf(size, "%li", &file_size);
+
+			int real_size = size_rec - i - 1;
+		
+			res = malloc(real_size + 1);
+			
+			memcpy(res, &(buffer[i + 1]), real_size);
+			res[real_size] = '\0';
+
+			size_tot += real_size;
+		} else {	
+			res = realloc(res, size_tot + size_rec + 1);
+			
+			memcpy(&(res[size_tot + 1]), buffer, size_rec);
+
+			res[size_tot + size_rec] = '\0';
+
+			size_tot += size_rec;
+		}
+	}
+
+	printf("\n%s\n\n", res);
+}
+
+void put_file_on_server(int descriptor, char* command) {
+	//On récupère notre nom de fichier
+	char filename[strlen(command) - 3];
+	memcpy(filename, &(command[4]), strlen(command) - 4);
+	filename[strlen(command) - 4] = '\0';
+	
+	//On vérifie si le fichier demandé existe
+	if (access(filename, F_OK) != -1) {
+		//S'il existe, on l'ouvre en lecture
+		FILE* f = fopen(filename, "r");
+		int file_size = get_file_size(f);
+		int file_size_rem = file_size;
+		char buf[MAX_FILE_SIZE + 1];
+
+		//On envoie la commande au serveur
+
+		Rio_writen(descriptor, command, strlen(command));
+
+		//On attend que le serveur soit pret a recevoir la donnée
+		char ready[2];
+		recv(descriptor, ready, 1, 0);
+		ready[1] = '\0';
+
+		while (strcmp(ready, "0") != 0) {
+			recv(descriptor, ready, 1, 0);
+		}
+	
+		while (file_size_rem != 0) {
+			//Si c'est la première itération, on ajoute la taille du fichier a envoyer
+			size_t read_size;
+
+			if (file_size_rem == file_size) {
+				//On récupère la "longueur" de notre long int, i.e. son nombre de caractères
+				int longueur = (file_size == 0 ? 1 : (int) (log10(file_size) + 1));
+				char taille[longueur + 1];
+				sprintf(taille, "%i", file_size);
+				taille[longueur] = '\0';
+
+				memcpy(buf, taille, longueur);
+
+				buf[longueur] = '\n';
+	
+				read_size = fread(&(buf[longueur + 1]), 1, MAX_FILE_SIZE - longueur - 1, f);
+				buf[read_size + longueur + 1] = '\0';
+				
+				ssize_t sent_size = send(descriptor, buf, read_size + longueur + 1, 0);
+
+				if (sent_size != read_size + longueur + 1) {
+					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n");
+					break;
+				}
+
+				file_size_rem -= sent_size - longueur - 1;
+			} else {
+				read_size = fread(buf, 1, MAX_FILE_SIZE, f);
+				buf[read_size] = '\0';
+				
+				ssize_t sent_size = send(descriptor, buf, read_size, 0);
+
+				if (sent_size != read_size) {
+					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n");
+					break;
+				}
+
+				file_size_rem -= sent_size;
+			}
+		}
+	
+		char buff[2];
+		recv(descriptor, buff, 2, 0);
+		buff[1] = '\0';
+
+		if (strcmp(buff, "0") == 0) {
+			printf("Le fichier a bien été uploadé sur le serveur.\n\n");
+		} else {
+			printf("Une erreur est survenue lors de l'upload du fichier sur le serveur. Veuillez réessayer.\n");
+		}
+	} else {
+		printf("Le fichier demandé n'existe pas. Veuillez saisir un nom de fichier valide.\n\n");
+	}
 }
 
 /*
