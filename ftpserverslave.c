@@ -144,7 +144,7 @@ int main(int argc, char **argv)
 						//On ferme proprement la connexion
 						char* close_msg = "connexion closed.";
 						send(connfd, close_msg, strlen(close_msg), 0);
-						exit(0);
+						break;
 					} else if (strcmp("ls", buffer) == 0) {
 						//On renvoie les fichiers du dossier courant
 						system("ls > .files.txt");
@@ -216,6 +216,7 @@ int main(int argc, char **argv)
 			free(current_user);
 			printf("On termine dans le fils\n");
 			close(connfd);
+			exit(0);
 		}
 
 		close(connfd);
