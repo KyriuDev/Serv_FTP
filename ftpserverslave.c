@@ -29,6 +29,8 @@ typedef struct {
 	char* password;
 } Credential;
 
+int nb_proc_curr;
+
 void send_file(char*, char*, int);
 
 FILE* get_file(char*);
@@ -64,6 +66,7 @@ void connect_if_user_exists(int, Credential**, int, Credential*, char*);
 void sigchild_handler(int sig) {
     int status;
     waitpid(-1, &status, WNOHANG | WUNTRACED);
+	nb_proc_curr--;
 }
 
 int port;
@@ -76,7 +79,7 @@ int port;
 int main(int argc, char **argv)
 {
     int listenfd, connfd;
-	int nb_proc_curr = 0;
+	nb_proc_curr = 0;
     socklen_t clientlen;
     struct sockaddr_in clientaddr;
 	char client_ip_string[INET_ADDRSTRLEN];
@@ -203,8 +206,8 @@ int main(int argc, char **argv)
 			}
 
 			free(current_user);
-			nb_proc_curr--;
 			close(connfd);
+			exit(0);
 		}
 
 		close(connfd);
