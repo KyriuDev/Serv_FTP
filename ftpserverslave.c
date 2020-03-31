@@ -108,106 +108,113 @@ int main(int argc, char **argv)
     while (1) {
 		connfd = Accept(listenfd, (SA*) &clientaddr, &clientlen);
 
-		if (nb_proc_curr++ < NB_PROC_MAX && Fork() == 0) {
-    		Credential* current_user = malloc(sizeof(Credential*));
+		if (nb_proc_curr++ < NB_PROC_MAX) {
+			if (Fork() == 0) {
+				//Si on n'a trouvé un processus disponible, on avertit le client
+				send(connfd, "0", 1, 0);
 
-			/* determine the name of the client */
-        	Getnameinfo((SA *) &clientaddr, clientlen, client_hostname, MAX_NAME_LEN, 0, 0, 0);
+				Credential* current_user = malloc(sizeof(Credential*));
 
-       		/* determine the textual representation of the client's IP address */
-       		Inet_ntop(AF_INET, &clientaddr.sin_addr, client_ip_string, INET_ADDRSTRLEN);
+				/* determine the name of the client */
+				Getnameinfo((SA *) &clientaddr, clientlen, client_hostname, MAX_NAME_LEN, 0, 0, 0);
 
-        	printf("server connected to %s (%s)\n", client_hostname, client_ip_string);
+				/* determine the textual representation of the client's IP address */
+				Inet_ntop(AF_INET, &clientaddr.sin_addr, client_ip_string, INET_ADDRSTRLEN);
 
-			/*
-				Dès qu'une connexion est établie avec un client, on rentre dans un
-				while infini dont on ne sort que lorsque le client envoie la commande
-				"bye", indiquant qu'il a terminé sa transaction
-			*/
+				printf("server connected to %s (%s)\n", client_hostname, client_ip_string);
 
-			char buffer[MAX_NAME_LEN + 1];
-			
-			while(1) {
-				ssize_t taille = recv(connfd, buffer, MAX_NAME_LEN, 0);
-				buffer[taille] = '\0';
+				/*
+					Dès qu'une connexion est établie avec un client, on rentre dans un
+					while infini dont on ne sort que lorsque le client envoie la commande
+					"bye", indiquant qu'il a terminé sa transaction
+				*/
 
-				if (taille != 0) {
-					if (strcmp("bye", buffer) == 0) {
-						//On ferme proprement la connexion
-						char* close_msg = "connexion closed.";
-						send(connfd, close_msg, strlen(close_msg), 0);
-						break;
-					} else if (strcmp("ls", buffer) == 0) {
-						//On renvoie les fichiers du dossier courant
-						system("ls > .files.txt");
-						send_ls_pwd_result(connfd, ".files.txt");
-						remove(".files.txt");
-					} else if (strcmp("pwd", buffer) == 0){
-						//On renvoie le chemin courant du serveur FTP
-						system("pwd > .path.txt");
-						send_ls_pwd_result(connfd, ".path.txt");
-						remove(".path.txt");
-					} else if (strncmp("cd", buffer, 2) == 0) {
-						//On change de dossier sur le serveur distant
-						change_working_repository(connfd, buffer);
-					} else if (strncmp("mkdir ", buffer, 6) == 0 || strncmp("mkdir ", &(buffer[5]), 6) == 0) {
-						/*
-							On va vérifier les droits :	Soit il s'agit d'un client et il
-							faut vérifier qu'il soit connecté, soit il s'agit du maitre
-							auquel cas on laisse faire
-						*/
-						if(strncmp("mkdir ", buffer, 6) != 0) {
-							//C'est le maitre qui avait envoyé la commande, donc on break
-							create_repository(connfd, buffer);
+				char buffer[MAX_NAME_LEN + 1];
+				
+				while(1) {
+					ssize_t taille = recv(connfd, buffer, MAX_NAME_LEN, 0);
+					buffer[taille] = '\0';
+
+					if (taille != 0) {
+						if (strcmp("bye", buffer) == 0) {
+							//On ferme proprement la connexion
+							char* close_msg = "connexion closed.";
+							send(connfd, close_msg, strlen(close_msg), 0);
 							break;
-						} else {
-							if ((current_user->login == NULL) == 1) {
-								//Le login est NULL, donc le client n'est pas authentifié : on refuse
-								send_error(connfd);
-							} else {
+						} else if (strcmp("ls", buffer) == 0) {
+							//On renvoie les fichiers du dossier courant
+							system("ls > .files.txt");
+							send_ls_pwd_result(connfd, ".files.txt");
+							remove(".files.txt");
+						} else if (strcmp("pwd", buffer) == 0){
+							//On renvoie le chemin courant du serveur FTP
+							system("pwd > .path.txt");
+							send_ls_pwd_result(connfd, ".path.txt");
+							remove(".path.txt");
+						} else if (strncmp("cd", buffer, 2) == 0) {
+							//On change de dossier sur le serveur distant
+							change_working_repository(connfd, buffer);
+						} else if (strncmp("mkdir ", buffer, 6) == 0 || strncmp("mkdir ", &(buffer[5]), 6) == 0) {
+							/*
+								On va vérifier les droits :	Soit il s'agit d'un client et il
+								faut vérifier qu'il soit connecté, soit il s'agit du maitre
+								auquel cas on laisse faire
+							*/
+							if(strncmp("mkdir ", buffer, 6) != 0) {
+								//C'est le maitre qui avait envoyé la commande, donc on break
 								create_repository(connfd, buffer);
-							}
-						}
-					} else if (strncmp("rm ", buffer, 3) == 0 || strncmp("rm ", &(buffer[5]), 3) == 0) {
-						if(strncmp("rm ", buffer, 3) != 0) {
-							//C'est le maitre qui avait envoyé la commande, donc on break
-							rm_file_repo(connfd, buffer);
-							break;
-						} else {
-							if ((current_user->login == NULL) == 1) {
-								//Le login est NULL, donc le client n'est pas authentifié : on refuse
-								send_error(connfd);
+								break;
 							} else {
+								if ((current_user->login == NULL) == 1) {
+									//Le login est NULL, donc le client n'est pas authentifié : on refuse
+									send_error(connfd);
+								} else {
+									create_repository(connfd, buffer);
+								}
+							}
+						} else if (strncmp("rm ", buffer, 3) == 0 || strncmp("rm ", &(buffer[5]), 3) == 0) {
+							if(strncmp("rm ", buffer, 3) != 0) {
+								//C'est le maitre qui avait envoyé la commande, donc on break
 								rm_file_repo(connfd, buffer);
-							}
-						}
-					} else if (strncmp("put ", buffer, 4) == 0 || strncmp("put ", &(buffer[5]), 4) == 0) {
-						if(strncmp("put ", buffer, 4) != 0) {
-							//C'est le maitre qui avait envoyé la commande, donc on break
-							write_file(connfd, buffer);
-							break;
-						} else {
-							if ((current_user->login == NULL) == 1) {
-								//Le login est NULL, donc le client n'est pas authentifié : on refuse
-								send_error(connfd);
+								break;
 							} else {
-								write_file(connfd, buffer);
+								if ((current_user->login == NULL) == 1) {
+									//Le login est NULL, donc le client n'est pas authentifié : on refuse
+									send_error(connfd);
+								} else {
+									rm_file_repo(connfd, buffer);
+								}
 							}
+						} else if (strncmp("put ", buffer, 4) == 0 || strncmp("put ", &(buffer[5]), 4) == 0) {
+							if(strncmp("put ", buffer, 4) != 0) {
+								//C'est le maitre qui avait envoyé la commande, donc on break
+								write_file(connfd, buffer);
+								break;
+							} else {
+								if ((current_user->login == NULL) == 1) {
+									//Le login est NULL, donc le client n'est pas authentifié : on refuse
+									send_error(connfd);
+								} else {
+									write_file(connfd, buffer);
+								}
+							}
+						} else if (strncmp("connect ", buffer, 8) == 0) {
+							//Le client envoie une demande de connexion qu'on analyse
+							connect_if_user_exists(connfd, users, nb_users, current_user, buffer);
+						} else {
+							//On renvoie le fichier demandé s'il existe, un message d'erreur sinon
+							send_file(buffer, buf, connfd);
 						}
-					} else if (strncmp("connect ", buffer, 8) == 0) {
-						//Le client envoie une demande de connexion qu'on analyse
-						connect_if_user_exists(connfd, users, nb_users, current_user, buffer);
-					} else {
-						//On renvoie le fichier demandé s'il existe, un message d'erreur sinon
-						send_file(buffer, buf, connfd);
 					}
 				}
-
+				
+				free(current_user);
+				close(connfd);
+				exit(0);
 			}
-
-			free(current_user);
-			close(connfd);
-			exit(0);
+		} else {
+			//Si il n'y a plus de processus disponible, on avertit le client
+			send(connfd, "1", 1, 0);
 		}
 
 		close(connfd);
@@ -457,7 +464,7 @@ void send_ls_pwd_result(int connfd, char* filename) {
 		et on met le résultat dans une string, avec un '\n' entre
 		chaque nom de fichier
 	*/
-	
+
 	FILE* my_file = fopen(filename, "r");
 	
 	char contenu[MAX_FILE_SIZE + 1];
@@ -465,6 +472,20 @@ void send_ls_pwd_result(int connfd, char* filename) {
 	ssize_t sent_size = 0;
 	
 	int file_size = get_file_size(my_file) - 1;
+
+	if (file_size == -1 || file_size == 0) {
+		//Le ls n'a retourné aucun résultat donc on renvoie un byte "d'erreur" au client
+
+		int sent = send(connfd, "1", 1, 0);
+
+		if (sent == -1) {
+			printf("Erreur lors de l'envoi.\n");
+		}
+		return;
+	} else {
+		send(connfd, "0", 1, 0);
+	}
+
 	int file_size_rem = file_size;
 	int longueur = (file_size == 0 ? 1 : (int) (log10(file_size) + 1));
 	char longueur_str[longueur + 2];
@@ -510,6 +531,8 @@ void send_ls_pwd_result(int connfd, char* filename) {
 		} else {
 			fread(contenu, MAX_FILE_SIZE, 1, my_file);
 		}
+
+		printf("contenu du ls : |%s|\n", contenu);
 
 		/*
 			Si la taille "restante" du fichier est inférieur à la taille max du buffer
@@ -590,7 +613,7 @@ void change_working_repository(int descriptor, char* command) {
 		On a 3 cas à traiter : 
 			- "cd" nous fait revenir au repertoire "home"
 			- "cd .." nous fait revenir au repertoire précédent
-			- "cd <path>" nous emmène au chemin indiqué s'il est disponible 
+			- "cd <path>" ou "cd <dir>" nous emmène au repertoire indiqué s'il est disponible 
 	*/
 
 	unsigned int reussite;
@@ -640,28 +663,21 @@ void change_working_repository(int descriptor, char* command) {
 			printf("On est déjà à la racine !\n");
 		}
 	} else {
-		if (strncmp(command, "cd /", 4) == 0) {
-			//On va au répertoire correspondant au chemin
-			
-			char path[strlen(command) - 2];
-			memcpy(path, &(command[3]), strlen(command) - 3);
-			path[strlen(command) - 3] = '\0';
-			
-			reussite = chdir(path);
+		//On va au répertoire correspondant au chemin ou dans le répertoire indiqué
+		
+		char path[strlen(command) - 2];
+		memcpy(path, &(command[3]), strlen(command) - 3);
+		path[strlen(command) - 3] = '\0';
+		
+		reussite = chdir(path);
 
-			if (reussite == 0) {
-				//Ici en théorie, path == dir mais on s'en assure
-
-				char dir[MAX_PATH_SIZE];
-				getcwd(dir, MAX_PATH_SIZE);
-				
-				printf("Changement de répertoire réussi.\nRépertoir courant : |%s|\n", dir);
-			} else {
-				printf("Le changement de répertoire a échoué\n");
-			}
+		if (reussite == 0) {
+			char dir[MAX_PATH_SIZE];
+			getcwd(dir, MAX_PATH_SIZE);
+			
+			printf("Changement de répertoire réussi.\nRépertoir courant : |%s|\n", dir);
 		} else {
-			reussite = 1;
-			printf("Le chemin reçu n'a pas le format attendu. Format attendu : '/<..>'\n");
+			printf("Le changement de répertoire a échoué\n");
 		}
 	}
 

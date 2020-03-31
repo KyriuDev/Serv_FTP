@@ -64,7 +64,23 @@ int main(int argc, char **argv)
 	Rio_writen(clientfd, "0", 1);
 	int nclientfd = get_slave_fd(clientfd);
 	Close(clientfd);
-    
+   
+	//On attend la réponse du serveur pour savoir si on peut se connecter
+	char buff[2];
+	recv(nclientfd, buff, 2, 0);
+	buff[1] = '\0';
+
+	while(strcmp(buff, "") == 0) {
+		recv(nclientfd, buff, 2, 0);
+	}
+
+	//On regarde la réponse reçue : si c'est 1 on termine
+
+	if (strcmp(buff, "1") == 0) {
+		printf("Le serveur n'est pas disponible pour le moment. Veuillez réessayer plus tard.\n");
+		exit(0);
+	}
+
 	Rio_readinitb(&rio, nclientfd);
 
 	//On recupère la liste de nos fichiers interrompus (s'il y en a)
@@ -113,7 +129,7 @@ int main(int argc, char **argv)
 					printf("Distant server has been shutdowned well. Client closing.\n");
 					exit(0);
 				} else {
-					printf("A problem has occurred during server shutdowning. Please try again.\n");
+					printf("A problem has occurred during server shutdowning. Please try again.\n\n");
 				}
 			} else if (strcmp(buf, "ls") == 0 ||strcmp(buf, "pwd") == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
@@ -133,7 +149,7 @@ int main(int argc, char **argv)
 				if (strcmp(buff, "0") == 0) {
 					printf("Le dossier courant a bien été modifié sur le serveur.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la modification du dossier courant sur le serveur. Veuillez réessayer.\n");
+					printf("Une erreur est survenue lors de la modification du dossier courant sur le serveur. Veuillez réessayer.\n\n");
 				}
 			} else if (strncmp(buf, "mkdir ", 6) == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
@@ -149,7 +165,7 @@ int main(int argc, char **argv)
 				if (strcmp(buff, "0") == 0) {
 					printf("Le dossier a bien été créé sur le serveur.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la création du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n");
+					printf("Une erreur est survenue lors de la création du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n\n");
 				}
 			} else if (strncmp(buf, "rm ", 3) == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
@@ -530,6 +546,21 @@ int is_not_in_list(char* filename, char* interrupted_file) {
 }
 
 void print_ls_pwd_result(int descriptor) {
+	//On vérifie que le ls a bien retourné un résultat
+	char buff[2];
+	recv(descriptor, buff, 2, 0);
+	buff[1] = '\0';
+
+	while (strcmp(buff, "") == 0) {
+		recv(descriptor, buff, 2, 0);
+	}
+
+	if (strcmp(buff, "1") == 0) {
+		//Le ls n'a pas retourné de résultat, on print donc ça
+		printf("<aucun fichier dans le dossier courant>\n");
+		return;
+	}
+
 	long size_tot = 0;
 	long file_size = -1;
 	int size_rec;
