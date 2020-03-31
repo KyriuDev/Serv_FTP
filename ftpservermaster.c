@@ -46,8 +46,6 @@ int main(int argc, char** argv) {
         /* determine the textual representation of the client's IP address */
         Inet_ntop(AF_INET, &clientaddr.sin_addr, client_ip_string, INET_ADDRSTRLEN);
 
-		printf("adresse ip client : |%s|\n", client_ip_string);
-
 		//On doit déterminer s'il s'agit d'un client ou d'un retour d'un des esclaves
 
 		char buffer[MAX_NAME_LEN + 1];
@@ -55,8 +53,6 @@ int main(int argc, char** argv) {
 		ssize_t size_rec = recv(connfd, buffer, MAX_NAME_LEN, 0);
 		buffer[size_rec] = '\0';
 
-		printf("buffer : |%s|\n", buffer);
-		
 		if (strcmp(buffer, "0") == 0) {
 			//Convention qui nous indique qu'il s'agit d'un client
 			last_slave = (last_slave + 1) % 5;
@@ -116,8 +112,6 @@ void transmit_to_slaves(char* buffer, const char** ip_addresses) {
 		memcpy(port_esclave, buffer, 4);
 		port_esclave[4] = '\0';
 
-		printf("buffer size : %li\n", strlen(buffer));
-
 		for (int i = 0; i < NB_SLAVE; i++) {
 			const char* slave = ip_addresses[i];
 	
@@ -157,8 +151,6 @@ void transmit_to_slaves(char* buffer, const char** ip_addresses) {
 				int clientfd = Open_clientfd(ip, port);
 
 				//On envoie la commande
-
-				printf("\nbuffer envoyé aux slaves : |%s|\n\n", nbuf);
 
 				Rio_writen(clientfd, nbuf, strlen(nbuf));
 
@@ -365,11 +357,6 @@ void fill_ip_addresses(const char** ip_addresses) {
 		} else {
 			printf("Les informations des esclaves ont bien été récupérées\n");
 		}
-
-		for (int i = 0; i < NB_SLAVE; i++) {
-			printf("info esclave %i : |%s|\n", i, ip_addresses[i]);
-		}
-
 	} else {
 		//Pas de fichier de configuration donc pas de lien vers les esclaves, on quitte
 		printf("Impossible de lire le fichier de configuration. Le serveur va se fermer.\n");

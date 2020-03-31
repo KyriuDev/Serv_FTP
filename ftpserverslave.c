@@ -94,12 +94,6 @@ int main(int argc, char **argv)
 	Credential** users = malloc(sizeof(Credential*));
 	get_existing_users(users, &nb_users);
 
-	for (int i = 0; i < nb_users; i++) {
-		printf("\nuser %i\n", i);
-		printf("login : |%s|\n", users[i]->login);
-		printf("password : |%s|\n\n", users[i]->password);
-	}
-
 	port = atoi(argv[1]);
 
 	Signal(SIGCHLD, sigchild_handler);
@@ -135,8 +129,6 @@ int main(int argc, char **argv)
 				buffer[taille] = '\0';
 
 				if (taille != 0) {
-					printf("commande reçue : |%s|\n", buffer);
-					
 					if (strcmp("bye", buffer) == 0) {
 						//On ferme proprement la connexion
 						char* close_msg = "connexion closed.";
@@ -212,7 +204,6 @@ int main(int argc, char **argv)
 
 			free(current_user);
 			nb_proc_curr--;
-			printf("On termine dans le fils\n");
 			close(connfd);
 		}
 
@@ -304,11 +295,16 @@ void send_file(char* requete, char* buf, int connfd) {
 	
 	fill_buff(requete, buf, &taille_fichier_client);
 	FILE* my_file = get_file(buf);
-		
+
+	//Si on ne peut pas accéder au fichier, on envoie une erreur au client
+
 	if (my_file == NULL) {
 		printf("le fichier demandé n'existe pas ou n'est pas accessible\n");
-		exit(0);
+		send(connfd, "1", 1, 0);
+		return;
 	}
+	
+	send(connfd, "0", 1, 0);
 
 	/*
 		Si on est ici, c'est que le fichier existe, donc on récupère sa taille
@@ -586,25 +582,6 @@ void send_ls_pwd_result(int connfd, char* filename) {
 	fclose(my_file);
 }
 
-void send_pwd_result(int descriptor) {
-	FILE* f = fopen(".path.txt", "r");
-
-	int taille = get_file_size(f);
-
-	char buf[taille + 1];
-	fread(buf, taille, 1, f);
-
-	printf("taille lue : %i\n", taille);
-
-	buf[taille] = '\0';
-
-	printf("buffer : |%s|\n", buf);
-
-	for (int i = 0; i < taille; i++) {
-		printf("char actuel : |%c/%i|\n", buf[i], buf[i]);
-	}
-}
-
 void change_working_repository(int descriptor, char* command) {
 	/*
 		On a 3 cas à traiter : 
@@ -676,7 +653,6 @@ void change_working_repository(int descriptor, char* command) {
 				getcwd(dir, MAX_PATH_SIZE);
 				
 				printf("Changement de répertoire réussi.\nRépertoir courant : |%s|\n", dir);
-				printf("Répertoire demandé : |%s|\n", path);
 			} else {
 				printf("Le changement de répertoire a échoué\n");
 			}
@@ -724,8 +700,6 @@ void create_repository(int descriptor, char* command) {
 		client = 1;
 	}
 
-	printf("\ntaille commande : %i\n\n", command_size);
-
 	//On récupère le nom du dossier a créer (on enlève mkdir)
 
 	char dir[command_size - 6];
@@ -743,8 +717,6 @@ void create_repository(int descriptor, char* command) {
 	reussite = mkdir(dir, ACCESSPERMS);
 
 	if (reussite == 0) {
-		printf("Le dossier a bien été créé.\n\n");
-		
 		if (client == 0) {
 			//On envoie les infos au maitre
 			
@@ -760,8 +732,6 @@ void create_repository(int descriptor, char* command) {
 				char path[MAX_PATH_SIZE];
 				getcwd(path, MAX_PATH_SIZE);
 				int path_size = strlen(path);
-
-				printf("taille du path : |%s| %li\n\n", path, strlen(path));
 
 				memcpy(fpath, path, path_size);
 
@@ -781,8 +751,6 @@ void create_repository(int descriptor, char* command) {
 			char portc[TAILLE_PORT];
 			sprintf(portc, "%i", port);
 
-			printf("port str : |%s|\n\n", portc);
-
 			memcpy(ppath, portc, 4);
 			ppath[4] = ':';
 			memcpy(&(ppath[5]), "mkdir ", 6);
@@ -790,10 +758,6 @@ void create_repository(int descriptor, char* command) {
 
 			ppath[strlen(fpath) + 11] = '\0';
 			
-			printf("path length : %li\n\n", strlen(fpath));
-			printf("fpath : |%s|\n\n", fpath);
-			printf("final path : |%s|\n\n", ppath);
-
 			Rio_writen(masterfd, ppath, strlen(ppath));
 		}
 	} else {
@@ -862,8 +826,6 @@ void rm_file_repo(int descriptor, char* command) {
 		}
 	}
 
-	printf("\ntaille commande : %i\n\n", command_size);
-
 	//On récupère le nom du dossier/fichier a supprimer (on enlève rm/rm -r)
 
 	char* elem;
@@ -890,8 +852,6 @@ void rm_file_repo(int descriptor, char* command) {
 		}
 	}
 
-	printf("element a supprimer ou commande pour un dossier : |%s|\n", elem);
-
 	//On effectue la suppression
 
 	if (file == 0) {
@@ -916,8 +876,6 @@ void rm_file_repo(int descriptor, char* command) {
 		}
 	}
 
-	printf("reussite : %i\n", reussite);
-
 	//On print côté serveur la réussite ou l'échec de la suppression
 
 	if (reussite == 0) {
@@ -938,8 +896,6 @@ void rm_file_repo(int descriptor, char* command) {
 				char path[MAX_PATH_SIZE];
 				getcwd(path, MAX_PATH_SIZE);
 				int path_size = strlen(path);
-
-				printf("taille du path : |%s| %li\n\n", path, strlen(path));
 
 				memcpy(fpath, path, path_size);
 
@@ -966,18 +922,12 @@ void rm_file_repo(int descriptor, char* command) {
 				cmd = "rm -r ";
 			}
 
-			printf("port str : |%s|\n\n", portc);
-
 			memcpy(ppath, portc, 4);
 			ppath[4] = ':';
 			memcpy(&(ppath[5]), cmd, ind_cmd);
 			memcpy(&(ppath[ind_cmd + 5]), fpath, strlen(fpath));
 
 			ppath[strlen(fpath) + ind_cmd + 5] = '\0';
-			
-			printf("path length : %li\n\n", strlen(fpath));
-			printf("fpath : |%s|\n\n", fpath);
-			printf("final path : |%s|\n\n", ppath);
 
 			Rio_writen(masterfd, ppath, strlen(ppath));
 		}
@@ -1020,10 +970,6 @@ void write_file(int descriptor, char* command) {
 		memcpy(filename, &(command[9]), strlen(command) - 9);
 		filename[strlen(command) - 9] = '\0';
 	}
-
-	//On récupère le nom du fichier
-	
-	printf("nom du fichier : |%s|\n", filename);
 
 	//On crée nos valeurs "bornes" : size_tot et size_rec
 	long long size_tot = -1;
@@ -1123,8 +1069,6 @@ void write_file(int descriptor, char* command) {
 	if (client == 0) {
 		//On est dans le client donc on ouvre une connexion avec le serveur maitre
 
-		printf("on passe ici\n");
-
 		int masterfd = Open_clientfd(MASTER_IP, PORT);
 		char ncmd[strlen(command) + 6];
 		char portc[TAILLE_PORT + 1];
@@ -1151,8 +1095,6 @@ void write_file(int descriptor, char* command) {
 
 		close(masterfd);
 	}
-
-	printf("on a terminé l'envoi proprement\n");
 }
 
 void send_file_to_server(int descriptor, char* command) {
@@ -1299,9 +1241,6 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	login[0] = '\0';
 	password[0] = '\0';
 	
-	printf("login avant : |%s|\n", login);
-	printf("password avant : |%s|\n", password);
-
 	//On itère a partir du début du login (on saute le "connect ")
 	unsigned int i = 8;
 	
@@ -1331,9 +1270,6 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	}
 
 	password[i - j] = '\0';
-
-	printf("login passé : |%s|\n", login);
-	printf("password passé : |%s|\n", password);
 
 	if (strcmp(login, "") == 0 || strcmp(password, "") == 0) {
 		printf("La commande transmise n'a pas le format requis. Format attendu \"connect <login> <password>\"\n");
@@ -1374,6 +1310,8 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	if (sent == -1) {
 		printf("Erreur lors de l'envoi.\n");
 	}
+
+	printf("valeur de reussite : %i\n", reussite);
 }
 
 /*

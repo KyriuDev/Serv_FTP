@@ -58,7 +58,7 @@ int main(int argc, char **argv)
      * and the server OS ... but it is possible that the server application
      * has not yet called "Accept" for this connection
      */
-    printf("client connected to server OS\n");
+    printf("client connected to server OS\n\n");
 
 	//On envoie au maitre un "0" pour dire qu'on est client et pas esclave
 	Rio_writen(clientfd, "0", 1);
@@ -124,7 +124,12 @@ int main(int argc, char **argv)
 			
 				char buff[2];
 				recv(nclientfd, buff, 2, 0);
+				buff[1] = '\0';
 
+				while(strcmp(buff, "") == 0) {
+					recv(nclientfd, buff, 2, 0);
+				}
+				
 				if (strcmp(buff, "0") == 0) {
 					printf("Le dossier courant a bien été modifié sur le serveur.\n\n");
 				} else {
@@ -135,7 +140,12 @@ int main(int argc, char **argv)
 
 				char buff[2];
 				recv(nclientfd, buff, 2, 0);
+				buff[1] = '\0';
 
+				while(strcmp(buff, "") == 0) {
+					recv(nclientfd, buff, 2, 0);
+				}
+				
 				if (strcmp(buff, "0") == 0) {
 					printf("Le dossier a bien été créé sur le serveur.\n\n");
 				} else {
@@ -146,14 +156,19 @@ int main(int argc, char **argv)
 
 				char buff[2];
 				recv(nclientfd, buff, 2, 0);
+				buff[1] = '\0';
 				char* msgr;
 				char* msgf;
 
+				while(strcmp(buff, "") == 0) {
+					recv(nclientfd, buff, 2, 0);
+				}
+				
 				if (strncmp(buf, "rm -r ", 6) == 0) {
-					msgr = "Le dossier ainsi que tous ses fichiers a bien été supprimé.\n\n";
+					msgr = "Le dossier ainsi que tous ses fichiers a bien été supprimé.\n";
 					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez\n\n";
 				} else {
-					msgr = "Le fichier a bien été supprimé.\n\n";
+					msgr = "Le fichier a bien été supprimé.\n";
 					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n\n";
 				}
 
@@ -170,6 +185,12 @@ int main(int argc, char **argv)
 				char buff[2];
 				recv(nclientfd, buff, 2, 0);
 				buff[1] = '\0';
+
+				//On attend la réponse du serveur
+
+				while(strcmp(buff, "") == 0) {
+					recv(nclientfd, buff, 2, 0);
+				}
 
 				printf("buffer : |%s|\n", buff);
 
@@ -188,8 +209,6 @@ int main(int argc, char **argv)
 
 				char filename[strlen(buf) - 4];
 				strcut(buf, filename);
-
-				//printf("filename : %s\n", filename);
 
 				/*
 					On crée un fichier temporaire qui contient le nom du fichier demandé
@@ -215,6 +234,24 @@ int main(int argc, char **argv)
 				//On envoie fbuf qui contient le nom de notre fichier et sa taille
 				Rio_writen(nclientfd, fbuf, strlen(fbuf));
 
+				//On check le byte renvoyé par le serveur pour savoir si notre fichier existe
+
+				char exists[2];
+				recv(nclientfd, exists, 2, 0);
+				exists[1] = '\0';
+
+				//On attend la réponse du serveur
+
+				while(strcmp(exists, "") == 0) {
+					recv(nclientfd, exists, 2, 0);
+				}
+
+				//Si le fichier n'existe pas, on print un message d'erreur et on recommence l'attente
+				if (strcmp(exists, "0") != 0) {
+					printf("Le fichier demandé n'existe pas sur le serveur.\n\n");
+					continue;
+				}
+
 				//On récupère notre fichier distant
 				int size_tot = 0;
 
@@ -225,7 +262,7 @@ int main(int argc, char **argv)
 
 				printf("\n%i bytes reçu en %li µsecondes (%f Mo/s)\n\n", size_tot, delta, ((double) size_tot / (double) delta));
 				
-				remove(backup_name);
+				//remove(backup_name);
 			}
 		} else {
 			printf("La commande renseignée n'a pas été reconnue pas le système. Veuillez recommencer avec l'une des commandes suivante :\n- get <filename>\n- cd <path>\n- pwd\n- ls\n- mkdir\n- rm <dependencies> <filename>\n- put <filename>\n");
@@ -276,7 +313,7 @@ void add_to_file(char* contain, char* filename) {
 void strcut(char* buf, char* nbuf) {
     memcpy(nbuf, &buf[4], strlen(buf));
 
-    nbuf[strlen(nbuf) - 1] = '\0';
+    nbuf[strlen(nbuf)] = '\0';
 }
 
 long int get_file_size(FILE* f) {
@@ -385,7 +422,7 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 		paquets de 1000 bytes via "recv" puis on les ajoute au 
 		fichier souhaité.
 	*/
-	
+
 	while ((*size_tot) != file_size) {
 		size_rec = recv(clientfd, buffer, MAX_FILE_SIZE, 0);
 		
@@ -410,14 +447,14 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 
 			add_to_file(nbuf, filename);
 
-			printf("paquet de taille %i octets reçu\n", real_size);
+			//printf("paquet de taille %i octets reçu\n", real_size);
 			(*size_tot) += real_size;
 		} else {	
 			buffer[size_rec] = '\0';
 
 			add_to_file(buffer, filename);
 
-			printf("paquet de taille %i octets recu\n", size_rec);
+			//printf("paquet de taille %i octets recu\n", size_rec);
 			(*size_tot) += size_rec;
 		}
 	}
@@ -459,9 +496,6 @@ int get_slave_fd(int clientfd) {
 
 	sscanf(port, "%li", &portl);
 
-	printf("ip transmise : |%s|\n", ip_address);
-	printf("port transmis : |%li|\n\n", portl);
-
 	int newfd = Open_clientfd(ip_address, portl);
 
 	return newfd;
@@ -475,19 +509,10 @@ void get_interrupted_file(char* backupname, char* interrupted_file) {
 		struct stat stats;
 		stat(backupname, &stats);
 
-		printf("taille fichier corrompu : %li\n", stats.st_size * 2 );
-
-		fgets(interrupted_file, stats.st_size, f);
-
-		for (int i = 0; i < stats.st_size; i++) {
-			printf("char actuel : %c\n", interrupted_file[i]);
-			printf("char (int) : %i\n", interrupted_file[i]);
-		}
-
+		fread(interrupted_file, 1, stats.st_size, f);
 		interrupted_file[stats.st_size] = '\0';
 
 		fclose(f);
-		printf("\nfichier interrompu : |%s|\n\n", interrupted_file);
 	} else {
 		//Le fichier n'existe pas
 		interrupted_file[0] = '\0';
