@@ -16,6 +16,8 @@ void send_file_to_slaves(int, char*, const char**);
 
 void send_file(int, int, char*);
 
+void fill_ip_addresses(const char**);
+
 int main(int argc, char** argv) {
 	//Doit connaitre les ip/ports des esclaves
 	
@@ -28,12 +30,8 @@ int main(int argc, char** argv) {
 	
 	//Ca sera notre tableau d'ip/ports pour l'instant avec NB_SLAVE elements
 
-	const char* ip_addresses[5];
-	ip_addresses[0] = "localhost:3000";
-	ip_addresses[1] = "localhost:3001";
-	ip_addresses[2] = "localhost:3002";
-	ip_addresses[3] = "localhost:3003";
-	ip_addresses[4] = "localhost:3004";
+	const char* ip_addresses[NB_SLAVE];
+	fill_ip_addresses(ip_addresses);
 
     clientlen = (socklen_t) sizeof(clientaddr);
 
@@ -177,6 +175,7 @@ void send_file_to_slaves(int slave_fd, char* buffer, const char** ip_addresses) 
 		char port_esclave[5];
 		memcpy(port_esclave, buffer, 4);
 		port_esclave[4] = '\0';
+		unsigned int file_sent_correctly = 0;
 
 		for (int i = 0; i < NB_SLAVE; i++) {
 			const char* slave = ip_addresses[i];
@@ -227,16 +226,20 @@ void send_file_to_slaves(int slave_fd, char* buffer, const char** ip_addresses) 
 				//On envoie le fichier a l'esclave courant
 
 				send_file(slave_fd, clientfd, nbuf);
+				
+				//On vérifie que la transmission avec l'esclave courant s'est bien passée
+
+				char done[2];
+				recv(clientfd, done, 1, 0);
+				done[1] = '\0';
+
+				if (strcmp(done, "0") != 0) {
+					file_sent_correctly = 1;
+				}
 
 				//On ferme proprement le fils
 		
-				printf("dans le maitre on ferme\n");
-
 				close(clientfd);
-
-				//On renvoie un byte indiquant a l'esclave s'il reste ou non des esclaves a traiter
-					
-				send(slave_fd, "1", 1, 0);
 			}
 		}
 
@@ -245,7 +248,12 @@ void send_file_to_slaves(int slave_fd, char* buffer, const char** ip_addresses) 
 			pour lui indiquer d'arreter l'envoi du fichier
 		*/
 
-		send(slave_fd, "0", 1, 0);
+		if (file_sent_correctly == 0) {
+			printf("Le fichier a bien été transmis à tous les esclaves.\n");
+		} else {
+			printf("Au moins un des esclaves a rencontré une erreur lors de la récupération du fichier.\n");
+		}
+
 		close(slave_fd);
 	}
 
@@ -313,5 +321,58 @@ void send_file(int slave_fd, int descriptor, char* command) {
 		}
 
     	size_rec_tot += size_rec;
+	}
+}
+
+void fill_ip_addresses(const char** ip_addresses) {
+	char* filename = ".slaveinf.txt";
+	
+	//On vérifie si notre fichier de configuration existe
+
+	if (access(filename, F_OK) != -1) {
+		//Le fichier existe donc on le lit
+		FILE* f = fopen(filename, "r");
+		char* line = NULL;
+		size_t line_size = 0;
+		ssize_t size;
+		unsigned int nb_line = 0;
+
+		/*
+			On met toutes les lignes lues dans notre table d'adresses
+			Si on en lit plus ou moins que le nombre d'esclaves prévu,
+			on print un message d'erreur (bloquant ou non)
+		*/
+		
+		while ((size = getline(&line, &line_size, f)) > 0) {
+			if (nb_line < NB_SLAVE) {
+				line[size - 1] = '\0';
+				ip_addresses[nb_line] = line;
+				nb_line++;
+				line = NULL;
+				line_size = 0;
+			} else {
+				nb_line++;
+				break;
+			}
+		}
+
+		if (nb_line < NB_SLAVE) {
+			//Il manque des informations sur certains esclaves : on ne peut pas continuer
+			printf("Certaines données nécessaires au bon fonctionnement du serveur n'ont pas pu être lues. Le serveur va se fermer\n");
+			exit(1);
+		} else if (nb_line > NB_SLAVE){
+			printf("Le fichier de configuration plus d'IP que d'esclaves autorisés par le serveur. Seuls les %i premières IP ont été prises en compte.\n", NB_SLAVE);
+		} else {
+			printf("Les informations des esclaves ont bien été récupérées\n");
+		}
+
+		for (int i = 0; i < NB_SLAVE; i++) {
+			printf("info esclave %i : |%s|\n", i, ip_addresses[i]);
+		}
+
+	} else {
+		//Pas de fichier de configuration donc pas de lien vers les esclaves, on quitte
+		printf("Impossible de lire le fichier de configuration. Le serveur va se fermer.\n");
+		exit(1);
 	}
 }

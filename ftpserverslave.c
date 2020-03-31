@@ -11,17 +11,23 @@
 #define PORT 2121
 #define MAX_NAME_LEN 256
 #define MAX_FILE_SIZE 1000
-#define NB_PROC_MAX 2
+#define NB_PROC_MAX 5
 #define PROC_UTIL 0
 #define PROC_INUTIL 1
 #define MAX_PATH_SIZE 256
 #define MASTER_IP "localhost"
 #define TAILLE_PORT 4
+#define NB_SLAVE 5
 
 typedef struct {
     pid_t proc_pid;
     unsigned int utilisable;
 } Process;
+
+typedef struct {
+	char* login;
+	char* password;
+} Credential;
 
 void send_file(char*, char*, int);
 
@@ -48,6 +54,12 @@ void rm_file_repo(int, char*);
 void write_file(int, char*);
 
 void send_file_to_server(int, char*);
+
+void send_error(int);
+
+void get_existing_users(Credential**, int*);
+
+void connect_if_user_exists(int, Credential**, int, Credential*, char*);
 
 void sigchild_handler(int sig) {
     int status;
@@ -78,6 +90,16 @@ int main(int argc, char **argv)
 		exit(0);
 	}
 
+	int nb_users = -1;
+	Credential** users = malloc(sizeof(Credential*));
+	get_existing_users(users, &nb_users);
+
+	for (int i = 0; i < nb_users; i++) {
+		printf("\nuser %i\n", i);
+		printf("login : |%s|\n", users[i]->login);
+		printf("password : |%s|\n\n", users[i]->password);
+	}
+
 	port = atoi(argv[1]);
 
 	Signal(SIGCHLD, sigchild_handler);
@@ -90,7 +112,9 @@ int main(int argc, char **argv)
 		connfd = Accept(listenfd, (SA*) &clientaddr, &clientlen);
 
 		if (nb_proc_curr++ < NB_PROC_MAX && Fork() == 0) {
-    	    /* determine the name of the client */
+    		Credential* current_user = malloc(sizeof(Credential*));
+
+			/* determine the name of the client */
         	Getnameinfo((SA *) &clientaddr, clientlen, client_hostname, MAX_NAME_LEN, 0, 0, 0);
 
        		/* determine the textual representation of the client's IP address */
@@ -117,7 +141,6 @@ int main(int argc, char **argv)
 						//On ferme proprement la connexion
 						char* close_msg = "connexion closed.";
 						send(connfd, close_msg, strlen(close_msg), 0);
-						nb_proc_curr--;
 						break;
 					} else if (strcmp("ls", buffer) == 0) {
 						//On renvoie les fichiers du dossier courant
@@ -133,32 +156,52 @@ int main(int argc, char **argv)
 						//On change de dossier sur le serveur distant
 						change_working_repository(connfd, buffer);
 					} else if (strncmp("mkdir ", buffer, 6) == 0 || strncmp("mkdir ", &(buffer[5]), 6) == 0) {
-						//On crée le dossier et on transmet au maitre si le message vient du client
-						create_repository(connfd, buffer);
-					
+						/*
+							On va vérifier les droits :	Soit il s'agit d'un client et il
+							faut vérifier qu'il soit connecté, soit il s'agit du maitre
+							auquel cas on laisse faire
+						*/
 						if(strncmp("mkdir ", buffer, 6) != 0) {
 							//C'est le maitre qui avait envoyé la commande, donc on break
-							nb_proc_curr--;
+							create_repository(connfd, buffer);
 							break;
+						} else {
+							if ((current_user->login == NULL) == 1) {
+								//Le login est NULL, donc le client n'est pas authentifié : on refuse
+								send_error(connfd);
+							} else {
+								create_repository(connfd, buffer);
+							}
 						}
 					} else if (strncmp("rm ", buffer, 3) == 0 || strncmp("rm ", &(buffer[5]), 3) == 0) {
-						//On supprime le fichier/dossier et on transmet au maitre si besoin
-						rm_file_repo(connfd, buffer);
-						
 						if(strncmp("rm ", buffer, 3) != 0) {
 							//C'est le maitre qui avait envoyé la commande, donc on break
-							nb_proc_curr--;
+							rm_file_repo(connfd, buffer);
 							break;
+						} else {
+							if ((current_user->login == NULL) == 1) {
+								//Le login est NULL, donc le client n'est pas authentifié : on refuse
+								send_error(connfd);
+							} else {
+								rm_file_repo(connfd, buffer);
+							}
 						}
 					} else if (strncmp("put ", buffer, 4) == 0 || strncmp("put ", &(buffer[5]), 4) == 0) {
-						//On ajoute le fichier a l'esclave courant et on envoie au maitre si besoin
-						write_file(connfd, buffer);
-						
 						if(strncmp("put ", buffer, 4) != 0) {
 							//C'est le maitre qui avait envoyé la commande, donc on break
-							nb_proc_curr--;
+							write_file(connfd, buffer);
 							break;
+						} else {
+							if ((current_user->login == NULL) == 1) {
+								//Le login est NULL, donc le client n'est pas authentifié : on refuse
+								send_error(connfd);
+							} else {
+								write_file(connfd, buffer);
+							}
 						}
+					} else if (strncmp("connect ", buffer, 8) == 0) {
+						//Le client envoie une demande de connexion qu'on analyse
+						connect_if_user_exists(connfd, users, nb_users, current_user, buffer);
 					} else {
 						//On renvoie le fichier demandé s'il existe, un message d'erreur sinon
 						send_file(buffer, buf, connfd);
@@ -167,6 +210,8 @@ int main(int argc, char **argv)
 
 			}
 
+			free(current_user);
+			nb_proc_curr--;
 			printf("On termine dans le fils\n");
 			close(connfd);
 		}
@@ -1093,27 +1138,16 @@ void write_file(int descriptor, char* command) {
 
 		Rio_writen(masterfd, ncmd, strlen(ncmd));
 	
-		//On transmet le fichier au maitre comme si on était le client et lui l'esclave
-	
-		send_file_to_server(masterfd, command);
+		/*
+			On sait qu'on a NB_SLAVE - 1 esclaves auxquels transmettre le fichier
+			donc on envoie au mettre NB_SLAVE - 1 fois le fichier
+		*/
 
-		printf("on est apres le send_file\n");
+		unsigned int i = 0;
 
-		//On recommence tant que le maitre nous indique qu'il y a des esclaves sur lesquels
-		//faire l'ajout
-
-		char stop[2];
-		recv(masterfd, stop, 1, 0);
-		stop[1] = '\0';
-
-		printf("on est avant le while\n");
-
-		while (strcmp(stop, "1") == 0) {
+		while (i++ < NB_SLAVE - 1) {
 			send_file_to_server(masterfd, command);
-			recv(masterfd, stop, 1, 0);
 		}
-
-		printf("on est après le while\n");
 
 		close(masterfd);
 	}
@@ -1187,6 +1221,158 @@ void send_file_to_server(int descriptor, char* command) {
 
 	} else {
 		printf("Le fichier demandé n'existe pas. Veuillez saisir un nom de fichier valide.\n");
+	}
+}
+
+void get_existing_users(Credential** users, int* user_count) {
+	//On regarde si notre fichier contenant les utilisateurs existe
+	char filename[10] = ".cred.txt";
+	filename[9] = '\0';
+
+	if (access(filename, F_OK) != -1) {
+		//Le fichier existe, donc on lit les informations qu'il contient (s'il en contient)
+
+		FILE* f = fopen(filename, "r");
+		char* line = NULL;
+		size_t sizel = 0;
+		ssize_t line_size;
+		users[0] = malloc(sizeof(Credential*));
+		Credential* user = users[0];
+
+		while ((line_size = getline(&line, &sizel, f)) > 0) {
+			line[strlen(line) - 1] = '\0';
+		
+			if ((*user_count) == -1) {
+				(*user_count)++;
+			}
+
+			if (strncmp(line, "login:", 6) == 0) {
+				//On doit ajouter le login a notre credential
+				user->login = malloc(strlen(line) - 5);
+				memcpy(user->login, &(line[6]), strlen(line) - 6);
+				user->login[strlen(line) - 6] = '\0';
+			} else if (strncmp(line, "password:", 9) == 0) {
+				//On doit ajouter le mot de passer a notre credential
+				user->password = malloc(strlen(line) - 8);
+				memcpy(user->password, &(line[9]), strlen(line) - 9);
+				user->password[strlen(line) - 9] = '\0';
+			} else {
+				//On doit passer au credential suivant, donc ajouter l'actuel a notre liste
+				
+				if (sizeof(users) == (*user_count) * sizeof(Credential*)) {
+					users = realloc(users, ((*user_count) + 1) * sizeof(Credential*));	
+				}
+			
+				users[(*user_count) + 1] = malloc(sizeof(Credential*));
+				user = users[(*user_count) + 1];
+				(*user_count)++;
+			}
+		}
+
+		if ((*user_count) != -1) {
+			(*user_count)++;
+		}
+	} else {
+		//Pas d'utilisateurs existant, on fait pointer users sur NULL
+		users = NULL;
+	}
+}
+
+void send_error(int descriptor) {
+	char buf[2];
+	buf[0] = '0' + 1;
+	buf[1] = '\0';
+
+	int sent = send(descriptor, buf, 2, 0);
+
+	if (sent == -1) {
+		printf("Erreur lors de l'envoi.\n");
+	}
+}
+
+void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user, Credential* current_user, char* command) {
+	unsigned int reussite;
+	unsigned long cmd_size = strlen(command);
+	char* login = malloc(1);
+	char* password = malloc(1);
+
+	login[0] = '\0';
+	password[0] = '\0';
+	
+	printf("login avant : |%s|\n", login);
+	printf("password avant : |%s|\n", password);
+
+	//On itère a partir du début du login (on saute le "connect ")
+	unsigned int i = 8;
+	
+	while (command[i] != ' ') {
+		//Tant qu'on est pas arrivé a l'espace du mot de passe, on ajoute les caractères
+		
+		if (sizeof(login) == (i - 8) * sizeof(char)) {
+			//On agrandit notre login
+			login = realloc(login, (i - 8 + 1) * sizeof(char));
+		}
+
+		login[i - 8] = command[i];
+		i++;
+	}
+
+	login[i - 8] = '\0';
+	int j = ++i;
+
+	while (i < cmd_size) {
+		//On lit jusqu'a la fin de la commande pour avoir notre mot de passe
+		if (sizeof(password) == (i - j) * sizeof(char)) {
+			password = realloc(password, (i - j + 1) * sizeof(char));
+		}
+
+		password[i - j] = command[i];
+		i++;
+	}
+
+	password[i - j] = '\0';
+
+	printf("login passé : |%s|\n", login);
+	printf("password passé : |%s|\n", password);
+
+	if (strcmp(login, "") == 0 || strcmp(password, "") == 0) {
+		printf("La commande transmise n'a pas le format requis. Format attendu \"connect <login> <password>\"\n");
+		reussite = 1;
+	} else {
+		//On vérifie si les identifiants font partie de notre liste d'identifiants
+		unsigned int corresp = 1;
+
+		for (int i = 0; i < nb_user; i++) {
+			char* curr_login = user_list[i]->login;
+			char* curr_passw = user_list[i]->password;
+
+			if (strcmp(login, curr_login) == 0 && strcmp(password, curr_passw) == 0) {
+				//On a trouvé une correspondance -> On sort de la boucle et on connecte l'utilisateur
+				corresp = 0;
+				break;
+			}
+		}
+
+		if (corresp == 0) {
+			current_user->login = login;
+			current_user->password = password;
+			reussite = 0;
+		} else {
+			printf("Les identifiants transmis n'ont aucune correspondance dans la base.\n");
+			reussite = 1;
+		}
+	}
+
+	//On transmet la reussite ou l'echec de connection au client
+
+	char buf[2];
+	buf[0] = '0' + reussite;
+	buf[1] = '\0';
+
+	int sent = send(descriptor, buf, 2, 0);
+
+	if (sent == -1) {
+		printf("Erreur lors de l'envoi.\n");
 	}
 }
 

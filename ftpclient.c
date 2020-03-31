@@ -139,7 +139,7 @@ int main(int argc, char **argv)
 				if (strcmp(buff, "0") == 0) {
 					printf("Le dossier a bien été créé sur le serveur.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la création du dossier sur le serveur. Veuillez réessayer.\n");
+					printf("Une erreur est survenue lors de la création du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n");
 				}
 			} else if (strncmp(buf, "rm ", 3) == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
@@ -151,10 +151,10 @@ int main(int argc, char **argv)
 
 				if (strncmp(buf, "rm -r ", 6) == 0) {
 					msgr = "Le dossier ainsi que tous ses fichiers a bien été supprimé.\n\n";
-					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez réessayer\n\n";
+					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez\n\n";
 				} else {
 					msgr = "Le fichier a bien été supprimé.\n\n";
-					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez réessayer.\n\n";
+					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n\n";
 				}
 
 				if (strcmp(buff, "0") == 0) {
@@ -164,6 +164,20 @@ int main(int argc, char **argv)
 				}
 			} else if (strncmp(buf, "put ", 4) == 0) {
 				put_file_on_server(nclientfd, buf);
+			} else if (strncmp(buf, "connect ", 8) == 0) {
+				Rio_writen(nclientfd, buf, strlen(buf));
+				
+				char buff[2];
+				recv(nclientfd, buff, 2, 0);
+				buff[1] = '\0';
+
+				printf("buffer : |%s|\n", buff);
+
+				if (strcmp(buff, "0") == 0) {
+					printf("Vous êtes bien connecté au serveur distant.\n\n");
+				} else {
+					printf("Une erreur est survenue lors de la connexion au serveur distant. Assurez-vous de bien avoir renseigné vos identifiants, et le cas échéant de bien avoir un compte.\n");
+				}
 			} else {
 				/*
 					On supprime le "get" du buffer pour ne garder que le nom du fichier demandé.
@@ -237,7 +251,8 @@ int command_in_list(char* buf) {
 		strncmp(buf, "cd", 2) == 0 ||
 		strncmp(buf, "mkdir ", 6) == 0 ||
 		strncmp(buf, "rm ", 3) == 0 ||
-		strncmp(buf, "put ", 4) == 0)
+		strncmp(buf, "put ", 4) == 0 ||
+		strncmp(buf, "connect ", 8) == 0)
 	{
 		buf_valid = 1;
 	}
@@ -559,13 +574,31 @@ void put_file_on_server(int descriptor, char* command) {
 
 		Rio_writen(descriptor, command, strlen(command));
 
-		//On attend que le serveur soit pret a recevoir la donnée
-		char ready[2];
-		recv(descriptor, ready, 1, 0);
-		ready[1] = '\0';
+		//On vérifie que le serveur a bien accepté la commande (on est bien authentifié)
 
-		while (strcmp(ready, "0") != 0) {
-			recv(descriptor, ready, 1, 0);
+		char success[2];
+		recv(descriptor, success, 1, 0);
+		success[1] = '\0';
+
+		while (strcmp(success, "") == 0) {
+			recv(descriptor, success, 1, 0);
+		}
+
+		if (strcmp(success, "1") == 0) {
+			//Le serveur a refusé la commande, on print un message d'erreur et on return
+			printf("Le serveur a refusé l'accès. Veuillez vous assurer d'être bien connecté, et réessayez\n");
+			fclose(f);
+			return;
+		}
+		
+		/*
+			On attend que le serveur soit pret a recevoir la donnée mais si le serveur a 
+			accepté la commande, on a peut-être déjà reçu l'information nous indiquant si
+			le serveur est prêt ou pas, donc si success == 0, on ne fait pas le recv
+		*/
+
+		while (strcmp(success, "0") != 0) {
+			recv(descriptor, success, 1, 0);
 		}
 	
 		while (file_size_rem != 0) {
