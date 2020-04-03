@@ -1,13 +1,10 @@
-/*
- * echoclient.c - An echo client
- */
 #include "csapp.h"
 #include <sys/ioctl.h>
 #include <sys/time.h>
 
 #define PORT 2121
 #define MAX_SIZE_NAME 256
-#define MAX_FILE_SIZE 1000
+#define MAX_PACK_SIZE 1000
 #define MAX_IP_ADDR_SIZE 15
 #define CONNEXION_CLOSED "connexion closed."
 
@@ -182,10 +179,10 @@ int main(int argc, char **argv)
 				
 				if (strncmp(buf, "rm -r ", 6) == 0) {
 					msgr = "Le dossier ainsi que tous ses fichiers a bien été supprimé.\n";
-					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez\n\n";
+					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez\n";
 				} else {
 					msgr = "Le fichier a bien été supprimé.\n";
-					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n\n";
+					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n";
 				}
 
 				if (strcmp(buff, "0") == 0) {
@@ -208,12 +205,10 @@ int main(int argc, char **argv)
 					recv(nclientfd, buff, 2, 0);
 				}
 
-				printf("buffer : |%s|\n", buff);
-
 				if (strcmp(buff, "0") == 0) {
 					printf("Vous êtes bien connecté au serveur distant.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la connexion au serveur distant. Assurez-vous de bien avoir renseigné vos identifiants, et le cas échéant de bien avoir un compte.\n");
+					printf("Une erreur est survenue lors de la connexion au serveur distant. Assurez-vous de bien avoir renseigné vos identifiants, et le cas échéant de bien avoir un compte.\n\n");
 				}
 			} else {
 				/*
@@ -240,10 +235,6 @@ int main(int argc, char **argv)
 
 				char* fbuf = add_file_size(filename, interrupted_file);
 
-				//printf("buffer : %s\n", fbuf);
-				//printf("size buffer : %li\n", strlen(fbuf));
-				//printf("last : %i\n", fbuf[strlen(fbuf)]);
-				
 				struct timespec stop, start;
 				clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 			
@@ -281,7 +272,7 @@ int main(int argc, char **argv)
 				//remove(backup_name);
 			}
 		} else {
-			printf("La commande renseignée n'a pas été reconnue pas le système. Veuillez recommencer avec l'une des commandes suivante :\n- get <filename>\n- cd <path>\n- pwd\n- ls\n- mkdir\n- rm <dependencies> <filename>\n- put <filename>\n");
+			printf("\nLa commande renseignée n'a pas été reconnue pas le système. Veuillez recommencer avec l'une des commandes suivante :\n- get <filename>\n- cd <path>\n- pwd\n- ls\n- mkdir\n- rm <dependencies> <filename>\n- put <filename>\n\n");
 		}
     }
 
@@ -392,7 +383,8 @@ char* add_file_size(char* oldbuf, char* interrupted_file) {
 			interrompus, on part du principe que même si on possède un fichier en
 			local qui a le même nom, on veut récupérer le fichier distant, donc
 			on indique une taille de 0 pour notre fichier local afin qu'il soit
-			écrasé en local
+			écrasé en local (nécessaire car on ouvre les fichiers en mode "append"
+			systématiquement)
 		*/
 		
 		/*
@@ -431,7 +423,7 @@ char* add_file_size(char* oldbuf, char* interrupted_file) {
 void get_file(int* size_tot, int clientfd, char* filename) {	
 	long file_size = -1;
 	int size_rec;
-	char buffer[MAX_FILE_SIZE + 1];
+	char buffer[MAX_PACK_SIZE + 1];
 
 	/*
 		tant qu'on reçoit des données du serveur, on les recupère par
@@ -440,11 +432,11 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 	*/
 
 	while ((*size_tot) != file_size) {
-		size_rec = recv(clientfd, buffer, MAX_FILE_SIZE, 0);
+		size_rec = recv(clientfd, buffer, MAX_PACK_SIZE, 0);
 		
 		if (file_size == -1) {
 			//première itération de la boucle : on récupère la taille du fichier distant
-			char size[MAX_FILE_SIZE + 1];
+			char size[MAX_PACK_SIZE + 1];
 			unsigned int i = 0;
 
 			while (i < size_rec && buffer[i] != '\n') {
@@ -456,21 +448,19 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 
 			sscanf(size, "%li", &file_size);
 
-			char nbuf[MAX_FILE_SIZE - i];
+			char nbuf[MAX_PACK_SIZE - i];
 			int real_size = size_rec - i - 1;
 			memcpy(nbuf, &(buffer[i + 1]), real_size);
 			nbuf[real_size] = '\0';
 
 			add_to_file(nbuf, filename);
 
-			//printf("paquet de taille %i octets reçu\n", real_size);
 			(*size_tot) += real_size;
 		} else {	
 			buffer[size_rec] = '\0';
 
 			add_to_file(buffer, filename);
 
-			//printf("paquet de taille %i octets recu\n", size_rec);
 			(*size_tot) += size_rec;
 		}
 	}
@@ -564,7 +554,7 @@ void print_ls_pwd_result(int descriptor) {
 	long size_tot = 0;
 	long file_size = -1;
 	int size_rec;
-	char buffer[MAX_FILE_SIZE + 1];
+	char buffer[MAX_PACK_SIZE + 1];
 	char* res;
 
 	/*
@@ -574,11 +564,11 @@ void print_ls_pwd_result(int descriptor) {
 	*/
 	
 	while (size_tot != file_size) {
-		size_rec = recv(descriptor, buffer, MAX_FILE_SIZE, 0);
+		size_rec = recv(descriptor, buffer, MAX_PACK_SIZE, 0);
 
 		if (file_size == -1) {
 			//première itération de la boucle : on récupère la taille du fichier distant
-			char size[MAX_FILE_SIZE + 1];
+			char size[MAX_PACK_SIZE + 1];
 			unsigned int i = 0;
 
 			while (i < size_rec && buffer[i] != '\n') {
@@ -624,7 +614,7 @@ void put_file_on_server(int descriptor, char* command) {
 		FILE* f = fopen(filename, "r");
 		int file_size = get_file_size(f);
 		int file_size_rem = file_size;
-		char buf[MAX_FILE_SIZE + 1];
+		char buf[MAX_PACK_SIZE + 1];
 
 		//On envoie la commande au serveur
 
@@ -642,16 +632,15 @@ void put_file_on_server(int descriptor, char* command) {
 
 		if (strcmp(success, "1") == 0) {
 			//Le serveur a refusé la commande, on print un message d'erreur et on return
-			printf("Le serveur a refusé l'accès. Veuillez vous assurer d'être bien connecté, et réessayez\n");
+			printf("Le serveur a refusé l'accès. Veuillez vous assurer d'être bien connecté, et réessayez\n\n");
 			fclose(f);
 			return;
 		}
-		
-		/*
-			On attend que le serveur soit pret a recevoir la donnée mais si le serveur a 
-			accepté la commande, on a peut-être déjà reçu l'information nous indiquant si
-			le serveur est prêt ou pas, donc si success == 0, on ne fait pas le recv
-		*/
+
+		//On initialise le timer
+
+		struct timespec stop, start;
+		clock_gettime(CLOCK_MONOTONIC_RAW, &start);
 
 		while (strcmp(success, "0") != 0) {
 			recv(descriptor, success, 1, 0);
@@ -672,25 +661,25 @@ void put_file_on_server(int descriptor, char* command) {
 
 				buf[longueur] = '\n';
 	
-				read_size = fread(&(buf[longueur + 1]), 1, MAX_FILE_SIZE - longueur - 1, f);
+				read_size = fread(&(buf[longueur + 1]), 1, MAX_PACK_SIZE - longueur - 1, f);
 				buf[read_size + longueur + 1] = '\0';
 				
 				ssize_t sent_size = send(descriptor, buf, read_size + longueur + 1, 0);
 
 				if (sent_size != read_size + longueur + 1) {
-					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n");
+					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n\n");
 					break;
 				}
 
 				file_size_rem -= sent_size - longueur - 1;
 			} else {
-				read_size = fread(buf, 1, MAX_FILE_SIZE, f);
+				read_size = fread(buf, 1, MAX_PACK_SIZE, f);
 				buf[read_size] = '\0';
 				
 				ssize_t sent_size = send(descriptor, buf, read_size, 0);
 
 				if (sent_size != read_size) {
-					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n");
+					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n\n");
 					break;
 				}
 
@@ -703,10 +692,18 @@ void put_file_on_server(int descriptor, char* command) {
 		buff[1] = '\0';
 
 		if (strcmp(buff, "0") == 0) {
-			printf("Le fichier a bien été uploadé sur le serveur.\n\n");
+			printf("Le fichier a bien été uploadé sur le serveur.\n");
 		} else {
 			printf("Une erreur est survenue lors de l'upload du fichier sur le serveur. Veuillez réessayer.\n");
 		}
+
+		//On initialise un autre timer pour récupérer la durée de transaction (delta)
+		
+		clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
+		uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
+		//On print la durée d'envoi
+
+		printf("%i bytes envoyé en %li µsecondes (%f Mo/s)\n\n", file_size, delta, ((double) file_size / (double) delta));
 	} else {
 		printf("Le fichier demandé n'existe pas. Veuillez saisir un nom de fichier valide.\n\n");
 	}

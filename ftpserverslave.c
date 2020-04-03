@@ -10,19 +10,12 @@
 
 #define PORT 2121
 #define MAX_NAME_LEN 256
-#define MAX_FILE_SIZE 1000
+#define MAX_PACK_SIZE 1000
 #define NB_PROC_MAX 5
-#define PROC_UTIL 0
-#define PROC_INUTIL 1
 #define MAX_PATH_SIZE 256
 #define MASTER_IP "localhost"
 #define TAILLE_PORT 4
 #define NB_SLAVE 5
-
-typedef struct {
-    pid_t proc_pid;
-    unsigned int utilisable;
-} Process;
 
 typedef struct {
 	char* login;
@@ -37,11 +30,7 @@ FILE* get_file(char*);
 
 long int get_file_size(FILE* f);
 
-void init_processes(Process**);
-
 void fill_buff(char*, char*, unsigned long*);
-
-Process* get_usable_process(Process**);
 
 void send_ls_pwd_result(int, char*);
 
@@ -85,8 +74,6 @@ int main(int argc, char **argv)
 	char client_ip_string[INET_ADDRSTRLEN];
     char client_hostname[MAX_NAME_LEN];
 	char buf[MAX_NAME_LEN + 1];
-//    Process** processes = malloc(sizeof(void*) * NB_PROC);
-  //  init_processes(processes);
 
 	if (argc != 2) {
 		fprintf(stderr, "usage: %s <port>\n", argv[0]);
@@ -110,7 +97,7 @@ int main(int argc, char **argv)
 
 		if (nb_proc_curr++ < NB_PROC_MAX) {
 			if (Fork() == 0) {
-				//Si on n'a trouvé un processus disponible, on avertit le client
+				//Si on a trouvé un processus disponible, on avertit le client
 				send(connfd, "0", 1, 0);
 
 				Credential* current_user = malloc(sizeof(Credential*));
@@ -322,8 +309,8 @@ void send_file(char* requete, char* buf, int connfd) {
 		l'envoi (taille == 0)
 	*/
 
-	unsigned long file_size = get_file_size(my_file); //TODO
-	//unsigned long file_size = get_file_size(my_file) - taille_fichier_client;
+	//unsigned long file_size = get_file_size(my_file); //TODO
+	unsigned long file_size = get_file_size(my_file) - taille_fichier_client;
 	unsigned long file_size_rem = file_size;
 
 	/*
@@ -347,13 +334,13 @@ void send_file(char* requete, char* buf, int connfd) {
 		transmise a 0.
 	*/
 
-	char contenu[MAX_FILE_SIZE + 1];
-	contenu[MAX_FILE_SIZE] = '\0';
+	char contenu[MAX_PACK_SIZE + 1];
+	contenu[MAX_PACK_SIZE] = '\0';
 	ssize_t sent_size = 0;
 	
 	//On se déplace dans le fichier du nombre d'octets déjà lus et envoyés au client
 
-	//fseek(my_file, taille_fichier_client, SEEK_SET); //TODO
+	fseek(my_file, taille_fichier_client, SEEK_SET); //TODO
 
 	/*	
 		Tant qu'on n'a pas lu tout le fichier, on continue a le parcourir
@@ -374,7 +361,7 @@ void send_file(char* requete, char* buf, int connfd) {
 				il s'agit de la première itération
 			*/
 
-			if (longueur < MAX_FILE_SIZE - 1) {
+			if (longueur < MAX_PACK_SIZE - 1) {
 				//On met la longueur dans notre premier paquet
 				for (int i = 0; i < longueur; i++) {
 					contenu[i] = longueur_str[i];
@@ -384,13 +371,13 @@ void send_file(char* requete, char* buf, int connfd) {
 				contenu[longueur] = '\n';
 
 				//On ajoute le contenu de notre fichier au buffer
-				fread(&(contenu[longueur + 1]), MAX_FILE_SIZE - longueur - 1, 1, my_file);
+				fread(&(contenu[longueur + 1]), MAX_PACK_SIZE - longueur - 1, 1, my_file);
 			} else {
 				printf("Une taille de fichier qui contient plus de 999 chiffres ?????\n");
 				return;
 			}
 		} else {
-			fread(contenu, MAX_FILE_SIZE, 1, my_file);
+			fread(contenu, MAX_PACK_SIZE, 1, my_file);
 		}
 
 		/*
@@ -399,7 +386,7 @@ void send_file(char* requete, char* buf, int connfd) {
 			a l'indice correspondant, et on envoie ce paquet la
 		*/
 
-		if (file_size_rem < MAX_FILE_SIZE) {
+		if (file_size_rem < MAX_PACK_SIZE) {
 			contenu[file_size_rem + longueur + 1] = '\0';
 			int tailleTransmise = send(connfd, contenu, file_size_rem + longueur + 1, 0);
 		
@@ -423,8 +410,8 @@ void send_file(char* requete, char* buf, int connfd) {
 		*/
 
 		else {
-			contenu[MAX_FILE_SIZE] = '\0';
-			int tailleTransmise = send(connfd, contenu, MAX_FILE_SIZE, 0);
+			contenu[MAX_PACK_SIZE] = '\0';
+			int tailleTransmise = send(connfd, contenu, MAX_PACK_SIZE, 0);
 
 			/*
 				Si send renvoie -1, on a un problème (on simplifiera ici en admettant
@@ -467,8 +454,8 @@ void send_ls_pwd_result(int connfd, char* filename) {
 
 	FILE* my_file = fopen(filename, "r");
 	
-	char contenu[MAX_FILE_SIZE + 1];
-	contenu[MAX_FILE_SIZE] = '\0';
+	char contenu[MAX_PACK_SIZE + 1];
+	contenu[MAX_PACK_SIZE] = '\0';
 	ssize_t sent_size = 0;
 	
 	int file_size = get_file_size(my_file) - 1;
@@ -513,7 +500,7 @@ void send_ls_pwd_result(int connfd, char* filename) {
 				il s'agit de la première itération
 			*/
 
-			if (longueur < MAX_FILE_SIZE - 1) {
+			if (longueur < MAX_PACK_SIZE - 1) {
 				//On met la longueur dans notre premier paquet
 				for (int i = 0; i < longueur; i++) {
 					contenu[i] = longueur_str[i];
@@ -523,16 +510,14 @@ void send_ls_pwd_result(int connfd, char* filename) {
 				contenu[longueur] = '\n';
 
 				//On ajoute le contenu de notre fichier au buffer
-				fread(&(contenu[longueur + 1]), MAX_FILE_SIZE - longueur - 1, 1, my_file);
+				fread(&(contenu[longueur + 1]), MAX_PACK_SIZE - longueur - 1, 1, my_file);
 			} else {
-				printf("Une taille de fichier qui contient plus de 999 chiffres ?????\n");
+				printf("La taille du fichier ne peut pas excéder 999 chiffres !\n");
 				return;
 			}
 		} else {
-			fread(contenu, MAX_FILE_SIZE, 1, my_file);
+			fread(contenu, MAX_PACK_SIZE, 1, my_file);
 		}
-
-		printf("contenu du ls : |%s|\n", contenu);
 
 		/*
 			Si la taille "restante" du fichier est inférieur à la taille max du buffer
@@ -540,7 +525,7 @@ void send_ls_pwd_result(int connfd, char* filename) {
 			a l'indice correspondant, et on envoie ce paquet la
 		*/
 
-		if (file_size_rem < MAX_FILE_SIZE) {
+		if (file_size_rem < MAX_PACK_SIZE) {
 			if (file_size_rem == file_size) {
 				//Si c'est le premier paquet, on gère la taille qu'on a rajouté
 	
@@ -586,8 +571,8 @@ void send_ls_pwd_result(int connfd, char* filename) {
 		*/
 
 		else {
-			contenu[MAX_FILE_SIZE] = '\0';
-			int tailleTransmise = send(connfd, contenu, MAX_FILE_SIZE, 0);
+			contenu[MAX_PACK_SIZE] = '\0';
+			int tailleTransmise = send(connfd, contenu, MAX_PACK_SIZE, 0);
 
 			/*
 				Si send renvoie -1, on a un problème (on simplifiera ici en admettant
@@ -874,23 +859,19 @@ void rm_file_repo(int descriptor, char* command) {
 	//On effectue la suppression
 
 	if (file == 0) {
-		//Au cas ou, on empeche la suppression de fichier n'étant pas au moins dans "Documents"
-		if (strncmp(elem, "rm /", 4) != 0 || strncmp(elem, "rm /home/qni/Documents", 22) == 0) {
+		if (strncmp(elem, "rm /", 4) != 0) {
 			reussite = remove(elem);
 		} else {
-			printf("Vous ne pouvez pas supprimer de fichier aussi profond !\n");
 			reussite = 1;
 		}
 	} else {
-		//Au cas ou, on empeche la suppression de dossier n'étant pas au moins dans "Documents"
-		if (strncmp(elem, "rm -r /", 7) != 0 || strncmp(elem, "rm -r /home/qni/Documents", 25) == 0) {
+		if (strncmp(elem, "rm -r /", 7) != 0) {
 			if (system(elem) == 0) {
 				reussite = 0;
 			} else {
 				reussite = 1;
 			}
 		} else {
-			printf("Vous ne pouvez pas supprimer de dossier aussi profond !\n");
 			reussite = 1;
 		}
 	}
@@ -908,7 +889,6 @@ void rm_file_repo(int descriptor, char* command) {
 			if (strncmp(command, "rm /", 4) == 0 || strncmp(command, "rm -r /", 7) == 0) {
 				//On nous a passé un chemin -> On transmet la commande telle quelle
 
-				printf("Chemin ou on doit créer le répertoire : |%s|\n\n", &(command[ind_cmd]));
 				memcpy(fpath, &(command[ind_cmd]), strlen(command) - ind_cmd);
 			} else {
 				//On nous a passé un nom de fichier -> On rajoute le chemin courant
@@ -923,8 +903,6 @@ void rm_file_repo(int descriptor, char* command) {
 
 				memcpy(&(fpath[path_size + 1]), &(command[ind_cmd]), command_size - ind_cmd);
 				fpath[path_size + command_size - ind_cmd + 1] = '\0';
-
-				printf("Chemin ou on doit créer le repertoire : |%s|\n\n", fpath);
 			}
 
 			//On est dans le client donc on ouvre une connexion avec le serveur maitre
@@ -967,9 +945,6 @@ void rm_file_repo(int descriptor, char* command) {
 }
 
 void write_file(int descriptor, char* command) {
-	//On envoie un message au client pour dire qu'on est pret a recevoir le fichier
-	send(descriptor, "0", 1, 0);
-
 	unsigned int client;
 	unsigned int reussite;
 	char* filename;
@@ -995,11 +970,6 @@ void write_file(int descriptor, char* command) {
 	unsigned int size_rec_tot = 0;
 
 	/*
-		Pour l'instant, on ne se préoccupe pas de savoir si le fichier
-		existe ou non sur le serveur, on l'écrase quoi qu'il arrive
-	*/
-
-	/*
 		On écrit dans un fichier de nom différent puisqu'on travaille en local.
 		Pour l'utilisation serveur, commenter les 3 lignes suivantes.
 	*/
@@ -1013,6 +983,9 @@ void write_file(int descriptor, char* command) {
 
 	FILE* f = fopen(filename2, "w");
 
+	//On envoie un message au client/maitre pour dire qu'on est pret a recevoir le fichier
+	send(descriptor, "0", 1, 0);
+
 	if (f != NULL) {
 		//On boucle tant qu'on n'a pas récupéré tout le fichier du client
 
@@ -1020,10 +993,9 @@ void write_file(int descriptor, char* command) {
 			/*
 				On lit nos paquets
 			*/
-
-			char buf[MAX_FILE_SIZE + 1];
-			ssize_t size_rec = recv(descriptor, buf, MAX_FILE_SIZE, 0);
-			buf[MAX_FILE_SIZE] = '\0';
+			char buf[MAX_PACK_SIZE + 1];
+			ssize_t size_rec = recv(descriptor, buf, MAX_PACK_SIZE, 0);
+			buf[MAX_PACK_SIZE] = '\0';
 	
 			if (size_tot == -1) {
 				/*
@@ -1058,7 +1030,6 @@ void write_file(int descriptor, char* command) {
 			}
 		}
 
-		fclose(f);
 		reussite = 0;
 
 		printf("Le fichier a bien été uploadé sur le serveur.\n");
@@ -1066,6 +1037,8 @@ void write_file(int descriptor, char* command) {
 		reussite = 1;
 		printf("Une erreur est survenue lors de l'ouverture du fichier. Veuillez réessayer.\n");
 	}
+	
+	fclose(f);
 	
 	//On envoie le résultat de l'upload au client
 
@@ -1130,14 +1103,14 @@ void send_file_to_server(int descriptor, char* command) {
 	char filename[strlen(command) - 3];
 	memcpy(filename, &(command[4]), strlen(command) - 4);
 	filename[strlen(command) - 4] = '\0';
-	
+
 	//On vérifie si le fichier demandé existe
 	if (access(filename, F_OK) != -1) {
 		//S'il existe, on l'ouvre en lecture
 		FILE* f = fopen(filename, "r");
 		int file_size = get_file_size(f);
 		int file_size_rem = file_size;
-		char buf[MAX_FILE_SIZE + 1];
+		char buf[MAX_PACK_SIZE + 1];
 
 		while (file_size_rem != 0) {
 			//Si c'est la première itération, on ajoute la taille du fichier a envoyer
@@ -1154,7 +1127,7 @@ void send_file_to_server(int descriptor, char* command) {
 
 				buf[longueur] = '\n';
 	
-				read_size = fread(&(buf[longueur + 1]), 1, MAX_FILE_SIZE - longueur - 1, f);
+				read_size = fread(&(buf[longueur + 1]), 1, MAX_PACK_SIZE - longueur - 1, f);
 				buf[read_size + longueur + 1] = '\0';
 				
 				ssize_t sent_size = send(descriptor, buf, read_size + longueur + 1, 0);
@@ -1166,7 +1139,7 @@ void send_file_to_server(int descriptor, char* command) {
 
 				file_size_rem -= sent_size - longueur - 1;
 			} else {
-				read_size = fread(buf, 1, MAX_FILE_SIZE, f);
+				read_size = fread(buf, 1, MAX_PACK_SIZE, f);
 				buf[read_size] = '\0';
 				
 				ssize_t sent_size = send(descriptor, buf, read_size, 0);
@@ -1180,6 +1153,7 @@ void send_file_to_server(int descriptor, char* command) {
 			}
 		}
 
+		fclose(f);
 	} else {
 		printf("Le fichier demandé n'existe pas. Veuillez saisir un nom de fichier valide.\n");
 	}
@@ -1254,8 +1228,8 @@ void send_error(int descriptor) {
 void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user, Credential* current_user, char* command) {
 	unsigned int reussite;
 	unsigned long cmd_size = strlen(command);
-	char* login = malloc(1);
-	char* password = malloc(1);
+	char* login = malloc(sizeof(char));
+	char* password = malloc(sizeof(char));
 
 	login[0] = '\0';
 	password[0] = '\0';
@@ -1263,7 +1237,7 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	//On itère a partir du début du login (on saute le "connect ")
 	unsigned int i = 8;
 	
-	while (command[i] != ' ') {
+	while (i < cmd_size && command[i] != ' ') {
 		//Tant qu'on est pas arrivé a l'espace du mot de passe, on ajoute les caractères
 		
 		if (sizeof(login) == (i - 8) * sizeof(char)) {
@@ -1293,6 +1267,8 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	if (strcmp(login, "") == 0 || strcmp(password, "") == 0) {
 		printf("La commande transmise n'a pas le format requis. Format attendu \"connect <login> <password>\"\n");
 		reussite = 1;
+		free(login);
+		free(password);
 	} else {
 		//On vérifie si les identifiants font partie de notre liste d'identifiants
 		unsigned int corresp = 1;
@@ -1315,6 +1291,8 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 		} else {
 			printf("Les identifiants transmis n'ont aucune correspondance dans la base.\n");
 			reussite = 1;
+			free(login);
+			free(password);
 		}
 	}
 
@@ -1329,40 +1307,7 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	if (sent == -1) {
 		printf("Erreur lors de l'envoi.\n");
 	}
-
-	printf("valeur de reussite : %i\n", reussite);
 }
-
-/*
-Process* get_usable_process(Process** processes) {
-    for (int i = 0; i < NB_PROC; i++) {
-        if (processes[i]->utilisable == PROC_UTIL) {
-            //On rend le process actuel inutilisable
-            processes[i]->utilisable = PROC_INUTIL;
-            return processes[i];
-        }
-    }
-
-    return NULL;
-}
-
-void init_processes(Process** processes) {
-    for (int i = 0; i < NB_PROC; i++) {
-        processes[i] = malloc(sizeof(Process));
-
-  //      processes[i]->proc_pid = Fork();
-        processes[i]->utilisable = PROC_UTIL;
-    }
-
-	for (int i = 0; i < NB_PROC; i++) {
-		pid_t pid = 0;
-
-		if (pid == 0) break;
-	
-		processes[i]->proc_pid = pid;
-		printf("%i : \n", pid);
-	}
-}*/
 
 /* NOTA BENE :
 	

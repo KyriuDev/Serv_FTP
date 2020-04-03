@@ -6,7 +6,7 @@
 #define MAX_NAME_LEN 256
 #define PORT 2121
 #define TAILLE_PORT 4
-#define MAX_FILE_SIZE 1000
+#define MAX_PACK_SIZE 1000
 
 void send_slave_infos(int, const char**, int);
 
@@ -214,7 +214,17 @@ void send_file_to_slaves(int slave_fd, char* buffer, const char** ip_addresses) 
 				//On envoie la commande
 
 				Rio_writen(clientfd, nbuf, strlen(nbuf));
-				
+
+				//On attend que le client nous indique qu'il est pret
+
+				char ready[2];
+				recv(clientfd, ready, 1, 0);
+				ready[1] = '\0';
+
+				while (strcmp(ready, "") == 0) {
+					recv(clientfd, ready, 1, 0);
+				}
+
 				//On envoie le fichier a l'esclave courant
 
 				send_file(slave_fd, clientfd, nbuf);
@@ -270,9 +280,9 @@ void send_file(int slave_fd, int descriptor, char* command) {
 			On lit nos paquets
 		*/
 
-		char buf[MAX_FILE_SIZE + 1];
-		ssize_t size_rec = recv(slave_fd, buf, MAX_FILE_SIZE, 0);
-		buf[MAX_FILE_SIZE] = '\0';
+		char buf[MAX_PACK_SIZE + 1];
+		ssize_t size_rec = recv(slave_fd, buf, MAX_PACK_SIZE, 0);
+		buf[MAX_PACK_SIZE] = '\0';
 
 		if (size_tot == -1) {
 			/*
