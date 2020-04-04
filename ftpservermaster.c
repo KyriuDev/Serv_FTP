@@ -98,9 +98,9 @@ void send_slave_infos(int connfd, const char** ip_addresses, int last_slave) {
 	}
 
 	if (taille_transmise != strlen(ip_address)) {
-		printf("Un problème est survenu lors de la transaction....\n");
+		printf("An error has occurred during the transaction. Please try again.\n");
 	} else {
-		printf("La transmission des informations de l'esclave s'est effectuée sans problème\n");
+		printf("The slave's data transmission ended well.\n");
 	}
 }
 
@@ -251,9 +251,9 @@ void send_file_to_slaves(int slave_fd, char* buffer, const char** ip_addresses) 
 		*/
 
 		if (file_sent_correctly == 0) {
-			printf("Le fichier a bien été transmis à tous les esclaves.\n");
+			printf("The file has been well transmitted to all slaves.\n");
 		} else {
-			printf("Au moins un des esclaves a rencontré une erreur lors de la récupération du fichier.\n");
+			printf("At least one slave has encountered an issue during the transmission. Please try again.\n");
 		}
 
 		close(slave_fd);
@@ -318,7 +318,7 @@ void send_file(int slave_fd, int descriptor, char* command) {
 		ssize_t size_sent = send(descriptor, buf, size_rec, 0);
 
 		if (size_sent != size_rec) {
-			printf("Une erreur est survenue. Veuillez recommencer.\n");
+			printf("An error has occurred during the transmission. Please try again\n");
 			return;
 		}
 
@@ -360,16 +360,16 @@ void fill_ip_addresses(const char** ip_addresses) {
 
 		if (nb_line < NB_SLAVE) {
 			//Il manque des informations sur certains esclaves : on ne peut pas continuer
-			printf("Certaines données nécessaires au bon fonctionnement du serveur n'ont pas pu être lues. Le serveur va se fermer\n");
+			printf("Some essential datas for the well being of the server could not be read. The server will shutdown\n");
 			exit(1);
 		} else if (nb_line > NB_SLAVE){
-			printf("Le fichier de configuration plus d'IP que d'esclaves autorisés par le serveur. Seuls les %i premières IP ont été prises en compte.\n", NB_SLAVE);
+			printf("The slaves configuration file contains more IPs than authorized in the master so only the %i first IPs have been selected.\n", NB_SLAVE);
 		} else {
-			printf("Les informations des esclaves ont bien été récupérées\n");
+			printf("Slaves informations has been interpreted correctly.\n");
 		}
 	} else {
 		//Pas de fichier de configuration donc pas de lien vers les esclaves, on quitte
-		printf("Impossible de lire le fichier de configuration. Le serveur va se fermer.\n");
+		printf("No configuration file found. The server will shutdown.\n");
 		exit(1);
 	}
 }

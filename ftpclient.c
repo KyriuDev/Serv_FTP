@@ -26,7 +26,7 @@ void get_interrupted_file(char*, char*);
 
 int is_not_in_list(char*, char*);
 
-void print_ls_pwd_result(int);
+void print_ls_pwd_result(int, char*);
 
 void put_file_on_server(int, char*);
 
@@ -74,7 +74,7 @@ int main(int argc, char **argv)
 	//On regarde la réponse reçue : si c'est 1 on termine
 
 	if (strcmp(buff, "1") == 0) {
-		printf("Le serveur n'est pas disponible pour le moment. Veuillez réessayer plus tard.\n");
+		printf("The server is not available for the moment. Please try again later.\n");
 		exit(0);
 	}
 
@@ -91,23 +91,7 @@ int main(int argc, char **argv)
     while (1) {
 		//On récupère la commande tapée au clavier
 
-		char* val = Fgets(buf, MAXLINE, stdin);
-	
-		if (val == NULL) {
-			/*
-				Si Fgets renvoie NULL, soit on a atteint la fin de la saisie clavier,
-				soit on a eu une erreur (interruption par exemple)
-			*/
-
-			if (errno == EINTR) {
-				//On a eu une interruption (erreur)
-				printf("On a eu une interruption !\n");
-				break;
-			} else {
-				//On a atteint la fin de la saisie clavier (standard)
-			}
-		}
-
+		Fgets(buf, MAXLINE, stdin);
 		buf[strlen(buf) - 1] = '\0';
 
 		//On vérifie que la commande tapée au clavier est "correcte"
@@ -128,10 +112,10 @@ int main(int argc, char **argv)
 				} else {
 					printf("A problem has occurred during server shutdowning. Please try again.\n\n");
 				}
-			} else if (strcmp(buf, "ls") == 0 ||strcmp(buf, "pwd") == 0) {
+			} else if (strcmp(buf, "ls") == 0 || strcmp(buf, "pwd") == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
 				
-				print_ls_pwd_result(nclientfd);
+				print_ls_pwd_result(nclientfd, buf);
 			} else if (strncmp(buf, "cd", 2) == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
 			
@@ -144,9 +128,9 @@ int main(int argc, char **argv)
 				}
 				
 				if (strcmp(buff, "0") == 0) {
-					printf("Le dossier courant a bien été modifié sur le serveur.\n\n");
+					printf("Current working directory has been changed on the server.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la modification du dossier courant sur le serveur. Veuillez réessayer.\n\n");
+					printf("An error has occurred during the current working directory change. Please try again.\n\n");
 				}
 			} else if (strncmp(buf, "mkdir ", 6) == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
@@ -160,11 +144,11 @@ int main(int argc, char **argv)
 				}
 				
 				if (strcmp(buff, "0") == 0) {
-					printf("Le dossier a bien été créé sur le serveur.\n\n");
+					printf("The repository has been created on the server.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la création du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n\n");
+					printf("An error has occurred during the repository creation. Please try again.\n\n");
 				}
-			} else if (strncmp(buf, "rm ", 3) == 0) {
+ 			} else if (strncmp(buf, "rm ", 3) == 0) {
 				Rio_writen(nclientfd, buf, strlen(buf));
 
 				char buff[2];
@@ -178,11 +162,11 @@ int main(int argc, char **argv)
 				}
 				
 				if (strncmp(buf, "rm -r ", 6) == 0) {
-					msgr = "Le dossier ainsi que tous ses fichiers a bien été supprimé.\n";
-					msgf = "Une erreur est survenue lors de la suppression du dossier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez\n";
+					msgr = "The repository and all its files has been deleted well.\n";
+					msgf = "An error has occurred during the repository deletion. Please check your connection to the server, and try again.\n";
 				} else {
-					msgr = "Le fichier a bien été supprimé.\n";
-					msgf = "Une erreur est survenue lors de la suppression du fichier sur le serveur. Veuillez vous assurer d'être bien connecté, puis réessayez.\n";
+					msgr = "The file has been deleted well.\n";
+					msgf = "An error has occurred during the file deletion. Please check your connection to the server, and try again..\n";
 				}
 
 				if (strcmp(buff, "0") == 0) {
@@ -206,9 +190,9 @@ int main(int argc, char **argv)
 				}
 
 				if (strcmp(buff, "0") == 0) {
-					printf("Vous êtes bien connecté au serveur distant.\n\n");
+					printf("You are now connected to the server.\n\n");
 				} else {
-					printf("Une erreur est survenue lors de la connexion au serveur distant. Assurez-vous de bien avoir renseigné vos identifiants, et le cas échéant de bien avoir un compte.\n\n");
+					printf("An error has occurred during the connection to the server. Please make sure that you entered your credentials well, and if so that you have an account.\n\n");
 				}
 			} else {
 				/*
@@ -255,7 +239,7 @@ int main(int argc, char **argv)
 
 				//Si le fichier n'existe pas, on print un message d'erreur et on recommence l'attente
 				if (strcmp(exists, "0") != 0) {
-					printf("Le fichier demandé n'existe pas sur le serveur.\n\n");
+					printf("The requested file does not exist on the server. Please try again with another file.\n\n");
 					continue;
 				}
 
@@ -267,12 +251,12 @@ int main(int argc, char **argv)
 				clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
 				uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
 
-				printf("\n%i bytes reçu en %li µsecondes (%f Mo/s)\n\n", size_tot, delta, ((double) size_tot / (double) delta));
+				printf("\n%i bytes received in %li µ_seconds (%f Mb/s)\n\n", size_tot, delta, ((double) size_tot / (double) delta));
 				
 				//remove(backup_name);
 			}
 		} else {
-			printf("\nLa commande renseignée n'a pas été reconnue pas le système. Veuillez recommencer avec l'une des commandes suivante :\n- get <filename>\n- cd <path>\n- pwd\n- ls\n- mkdir\n- rm <dependencies> <filename>\n- put <filename>\n\n");
+			printf("\nThe typed command has not been recognized by the system. Please try with one of these commands:\n- get <filename>\n- cd <path>\n- pwd\n- ls\n- mkdir\n- rm <dependencies> <filename>\n- put <filename>\n\n");
 		}
     }
 
@@ -311,7 +295,7 @@ void add_to_file(char* contain, char* filename) {
 		uint64_t to_write_size = strlen(contain);
 		fwrite(contain, to_write_size, 1, f);
 	} else {
-		printf("Une erreur s'est produite lors de l'ouverture du fichier.\n");
+		printf("An error has occurred during the file opening.\n\n");
 	}
 
 	fclose(f);
@@ -535,21 +519,29 @@ int is_not_in_list(char* filename, char* interrupted_file) {
 	return not_in;
 }
 
-void print_ls_pwd_result(int descriptor) {
+void print_ls_pwd_result(int descriptor, char* command) {
 	//On vérifie que le ls a bien retourné un résultat
 	char buff[2];
 	recv(descriptor, buff, 2, 0);
 	buff[1] = '\0';
 
 	while (strcmp(buff, "") == 0) {
-		recv(descriptor, buff, 2, 0);
+		recv(descriptor, buff, 1, 0);
 	}
 
 	if (strcmp(buff, "1") == 0) {
-		//Le ls n'a pas retourné de résultat, on print donc ça
-		printf("<aucun fichier dans le dossier courant>\n");
+		if (strcmp(command, "ls") == 0) {
+			//Le ls n'a pas retourné de résultat, on print donc ça
+			printf("Either the current directory contains no file, or you do not have the needed permissions to see them.\n\n");
+		} else {
+			//Le pwd n'a pas fonctionné, on renvoie une erreur
+			printf("You do not have the permissions to know the current path.\n\n");
+		}
 		return;
 	}
+
+	//On renvoie un octet au serveur pour dire qu'on est pret a recevoir
+	send(descriptor, "0", 1, 0);
 
 	long size_tot = 0;
 	long file_size = -1;
@@ -620,7 +612,7 @@ void put_file_on_server(int descriptor, char* command) {
 
 		Rio_writen(descriptor, command, strlen(command));
 
-		//On vérifie que le serveur a bien accepté la commande (on est bien authentifié)
+		//On vérifie que le serveur a bien accepté la commande (pas authentifié ou manque de droits)
 
 		char success[2];
 		recv(descriptor, success, 1, 0);
@@ -632,7 +624,7 @@ void put_file_on_server(int descriptor, char* command) {
 
 		if (strcmp(success, "1") == 0) {
 			//Le serveur a refusé la commande, on print un message d'erreur et on return
-			printf("Le serveur a refusé l'accès. Veuillez vous assurer d'être bien connecté, et réessayez\n\n");
+			printf("The server denied the access. Please make sure that you are connected to it, and that you have the rights to write here.\n\n");
 			fclose(f);
 			return;
 		}
@@ -667,7 +659,7 @@ void put_file_on_server(int descriptor, char* command) {
 				ssize_t sent_size = send(descriptor, buf, read_size + longueur + 1, 0);
 
 				if (sent_size != read_size + longueur + 1) {
-					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n\n");
+					printf("An error has occurred during the file sending. Please try again\n\n");
 					break;
 				}
 
@@ -679,7 +671,7 @@ void put_file_on_server(int descriptor, char* command) {
 				ssize_t sent_size = send(descriptor, buf, read_size, 0);
 
 				if (sent_size != read_size) {
-					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n\n");
+					printf("An error has occurred during the file sending. Please try again.\n\n");
 					break;
 				}
 
@@ -692,20 +684,19 @@ void put_file_on_server(int descriptor, char* command) {
 		buff[1] = '\0';
 
 		if (strcmp(buff, "0") == 0) {
-			printf("Le fichier a bien été uploadé sur le serveur.\n");
+			printf("The file has been uploaded correctly.\n");
+			//On initialise un autre timer pour récupérer la durée de transaction (delta)
+			
+			clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
+			uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
+			//On print la durée d'envoi
+
+			printf("%i bytes sent in %li µ_seconds (%f Mb/s)\n\n", file_size, delta, ((double) file_size / (double) delta));
 		} else {
-			printf("Une erreur est survenue lors de l'upload du fichier sur le serveur. Veuillez réessayer.\n");
+			printf("An error has occurred during the file upload. Please try again.\n\n");
 		}
-
-		//On initialise un autre timer pour récupérer la durée de transaction (delta)
-		
-		clock_gettime(CLOCK_MONOTONIC_RAW, &stop);
-		uint64_t delta = (stop.tv_sec - start.tv_sec) * 1000000 + (stop.tv_nsec - start.tv_nsec) / 1000;
-		//On print la durée d'envoi
-
-		printf("%i bytes envoyé en %li µsecondes (%f Mo/s)\n\n", file_size, delta, ((double) file_size / (double) delta));
 	} else {
-		printf("Le fichier demandé n'existe pas. Veuillez saisir un nom de fichier valide.\n\n");
+		printf("The requested file does not exist. Please enter a valid filename.\n\n");
 	}
 }
 

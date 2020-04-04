@@ -130,12 +130,20 @@ int main(int argc, char **argv)
 							break;
 						} else if (strcmp("ls", buffer) == 0) {
 							//On renvoie les fichiers du dossier courant
-							system("ls > .files.txt");
+							if (system("ls > .files.txt") != 0) {
+								printf("An error has occurred during the temporary file creation.\n");
+								send(connfd, "1", 1, 0);
+								continue;
+							};
 							send_ls_pwd_result(connfd, ".files.txt");
 							remove(".files.txt");
 						} else if (strcmp("pwd", buffer) == 0){
 							//On renvoie le chemin courant du serveur FTP
-							system("pwd > .path.txt");
+							if (system("pwd > .path.txt") != 0) {
+								printf("An error has occurred during the temporary file creation.\n");
+								send(connfd, "1", 1, 0);
+								continue;
+							}
 							send_ls_pwd_result(connfd, ".path.txt");
 							remove(".path.txt");
 						} else if (strncmp("cd", buffer, 2) == 0) {
@@ -296,7 +304,7 @@ void send_file(char* requete, char* buf, int connfd) {
 	//Si on ne peut pas accéder au fichier, on envoie une erreur au client
 
 	if (my_file == NULL) {
-		printf("le fichier demandé n'existe pas ou n'est pas accessible\n");
+		printf("The selected file is not existing or not available.\n");
 		send(connfd, "1", 1, 0);
 		return;
 	}
@@ -325,8 +333,6 @@ void send_file(char* requete, char* buf, int connfd) {
 
 	sprintf(longueur_str, "%li", file_size);
 	longueur_str[longueur] = '\0';
-
-	printf("\nTaille du fichier demandé (- sa taille côté client) : %li\n\n", file_size);
 
 	/*
 		On crée notre buffer de contenu de fichier qui contiendra au maximum
@@ -373,7 +379,7 @@ void send_file(char* requete, char* buf, int connfd) {
 				//On ajoute le contenu de notre fichier au buffer
 				fread(&(contenu[longueur + 1]), MAX_PACK_SIZE - longueur - 1, 1, my_file);
 			} else {
-				printf("Une taille de fichier qui contient plus de 999 chiffres ?????\n");
+				printf("A file size of more than 999 digits ?!\n");
 				return;
 			}
 		} else {
@@ -439,9 +445,9 @@ void send_file(char* requete, char* buf, int connfd) {
 	*/
 
 	if (sent_size != file_size) {
-		printf("Un problème est survenu lors de la transaction...\n");
+		printf("An error has occurred during the transmission.\n");
 	} else {
-		printf("La transaction s'est effectuée sans problème\n");
+		printf("Transmission has ended well.\n");
 	}
 }
 
@@ -453,7 +459,17 @@ void send_ls_pwd_result(int connfd, char* filename) {
 	*/
 
 	FILE* my_file = fopen(filename, "r");
-	
+
+	if (my_file == NULL) {
+		//Le ls/pwd n'a pas fonctionné, on renvoie un octet d'erreur
+		
+		int sent = send(connfd, "1", 1, 0);
+
+		if (sent == -1) {
+			printf("Error during sending.\n");
+		}
+	}
+
 	char contenu[MAX_PACK_SIZE + 1];
 	contenu[MAX_PACK_SIZE] = '\0';
 	ssize_t sent_size = 0;
@@ -466,11 +482,21 @@ void send_ls_pwd_result(int connfd, char* filename) {
 		int sent = send(connfd, "1", 1, 0);
 
 		if (sent == -1) {
-			printf("Erreur lors de l'envoi.\n");
+			printf("Error during sending.\n");
 		}
+
+		fclose(my_file);
 		return;
 	} else {
 		send(connfd, "0", 1, 0);
+	}
+
+	char ready[2];
+	recv(connfd, ready, 1, 0);
+	ready[1] = '\0';
+
+	while (strcmp(ready, "") == 0) {
+		recv(connfd, ready, 1, 0);
 	}
 
 	int file_size_rem = file_size;
@@ -512,7 +538,7 @@ void send_ls_pwd_result(int connfd, char* filename) {
 				//On ajoute le contenu de notre fichier au buffer
 				fread(&(contenu[longueur + 1]), MAX_PACK_SIZE - longueur - 1, 1, my_file);
 			} else {
-				printf("La taille du fichier ne peut pas excéder 999 chiffres !\n");
+				printf("File size cannot exceed 999 digits !\n");
 				return;
 			}
 		} else {
@@ -530,6 +556,7 @@ void send_ls_pwd_result(int connfd, char* filename) {
 				//Si c'est le premier paquet, on gère la taille qu'on a rajouté
 	
 				contenu[file_size_rem + longueur + 1] = '\0';
+				
 				int tailleTransmise = send(connfd, contenu, file_size_rem + longueur + 1, 0);
 	
 				/*
@@ -609,9 +636,9 @@ void change_working_repository(int descriptor, char* command) {
 		reussite = chdir(getenv("HOME"));
 		
 		if (reussite == 0) {
-			printf("Changement de répertoire réussi.\n");
+			printf("Current working directory has been changed well.\n");
 		} else {
-			printf("Le changement de répertoire a échoué\n");
+			printf("Current working directory change failed.\n");
 		}
 	} else if (strcmp(command, "cd ..") == 0) {
 		//On revient au répertoire précédent
@@ -639,13 +666,13 @@ void change_working_repository(int descriptor, char* command) {
 			reussite = chdir(ndir);
 			
 			if (reussite == 0) {
-				printf("Changement de répertoire réussi.\nRépertoir courant : |%s|\n", ndir);
+				printf("Current directory has been changed well.\nNow in : |%s|.\n\n", ndir);
 			} else {
-				printf("Le changement de répertoire a échoué\n");
+				printf("Current directory change failed.\n");
 			}
 		} else {
 			reussite = 1;
-			printf("On est déjà à la racine !\n");
+			printf("Cannot go further than the root !\n");
 		}
 	} else {
 		//On va au répertoire correspondant au chemin ou dans le répertoire indiqué
@@ -660,9 +687,9 @@ void change_working_repository(int descriptor, char* command) {
 			char dir[MAX_PATH_SIZE];
 			getcwd(dir, MAX_PATH_SIZE);
 			
-			printf("Changement de répertoire réussi.\nRépertoir courant : |%s|\n", dir);
+			printf("Directory change succeeded.\nNow in : |%s|.\n", dir);
 		} else {
-			printf("Le changement de répertoire a échoué\n");
+			printf("Current directory change failed.\n");
 		}
 	}
 
@@ -673,7 +700,7 @@ void change_working_repository(int descriptor, char* command) {
 	int sent = send(descriptor, buf, 2, 0);
 
 	if (sent == -1) {
-		printf("Erreur lors de l'envoi.\n");
+		printf("Error while sending.\n");
 	}
 }
 
@@ -729,7 +756,7 @@ void create_repository(int descriptor, char* command) {
 			if (strncmp(command, "mkdir /", 7) == 0) {
 				//On nous a passé un chemin -> On transmet la commande telle quelle
 
-				printf("Chemin ou on doit créer le répertoire : |%s|\n\n", &(command[6]));
+				printf("Path where we have to create directory : |%s|.\n\n", &(command[6]));
 				memcpy(fpath, &(command[6]), strlen(command) - 6);
 			} else {
 				//On nous a passé un nom de fichier -> On rajoute le chemin courant
@@ -745,7 +772,7 @@ void create_repository(int descriptor, char* command) {
 				memcpy(&(fpath[path_size + 1]), &(command[6]), command_size - 6);
 				fpath[path_size + command_size - 5] = '\0';
 
-				printf("Chemin ou on doit créer le repertoire : |%s|\n\n", fpath);
+				printf("Path where we have to create directory : |%s|.\n\n", fpath);
 			}
 
 			//On est dans le client donc on ouvre une connexion avec le serveur maitre
@@ -766,7 +793,7 @@ void create_repository(int descriptor, char* command) {
 		}
 	} else {
 		//Si on n'a pas réussi, on renvoie une erreur au client
-		printf("Une erreur est survenue lors de la création du dossier.\n");
+		printf("An error has occurred during the directory creation.\n");
 	}
 	
 	char buf[2];
@@ -776,7 +803,7 @@ void create_repository(int descriptor, char* command) {
 	int sent = send(descriptor, buf, 2, 0);
 
 	if (sent == -1) {
-		printf("Erreur lors de l'envoi.\n");
+		printf("Error while sending.\n");
 	}
 }
 
@@ -879,7 +906,7 @@ void rm_file_repo(int descriptor, char* command) {
 	//On print côté serveur la réussite ou l'échec de la suppression
 
 	if (reussite == 0) {
-		printf("Le dossier/fichier a bien été supprimé.\n\n");
+		printf("The directory/file has been deleted well.\n\n");
 		
 		//Si besoin on transmet l'information au maitre
 
@@ -930,7 +957,7 @@ void rm_file_repo(int descriptor, char* command) {
 		}
 	} else {
 		//Si on n'a pas réussi, on renvoie une erreur au client
-		printf("Une erreur est survenue lors de la suppression du fichier/dossier.\n");
+		printf("An error has occurred during the deletion of the file/directory.\n\n");
 	}
 	
 	char buf[2];
@@ -940,7 +967,7 @@ void rm_file_repo(int descriptor, char* command) {
 	int sent = send(descriptor, buf, 2, 0);
 
 	if (sent == -1) {
-		printf("Erreur lors de l'envoi.\n");
+		printf("Error while sending.\n");
 	}
 }
 
@@ -948,6 +975,7 @@ void write_file(int descriptor, char* command) {
 	unsigned int client;
 	unsigned int reussite;
 	char* filename;
+	char curr_dir[MAX_PATH_SIZE];
 
 	//On regarde si le message provient d'un client ou du maitre
 	if (strncmp(command, "put", 3) == 0) {
@@ -959,10 +987,47 @@ void write_file(int descriptor, char* command) {
 		filename[strlen(command) - 4] = '\0';
 	} else {
 		client = 1;
+		/*
+			Si c'est le serveur, la commande contient également le chemin
+			du fichier où le créer, donc on doit se déplacer dans ce fichier
+		*/
 		
-		filename = malloc(strlen(command) - 8);
-		memcpy(filename, &(command[9]), strlen(command) - 9);
-		filename[strlen(command) - 9] = '\0';
+		//On sauvegarde le chemin courant pour y revenir a la fin de la transaction
+		getcwd(curr_dir, MAX_PATH_SIZE);
+
+		//On récupère le nom du fichier a créer
+		int i;
+		for (i = strlen(command) - 1; i >= 0; i--) {
+			//Le nom du fichier débute après le dernier '/'
+			if (command[i] == '/') {
+				break;	
+			}
+		}
+
+		filename = malloc(strlen(command) - i + 1);
+		memcpy(filename, &(command[i + 1]), strlen(command) - i);
+		filename[i] = '\0';
+
+		//On récupère le chemin où créer le fichier
+		int j;
+		for (j = 0; j < strlen(command); j++) {
+			//Le premier espace indique le début du chemin
+			if (command[j] == ' ') {
+				j++;
+				break;
+			}
+		}
+
+		char path[i - j + 1];
+		memcpy(path, &(command[j]), i - j);
+		path[i - j] = '\0';
+
+		//On change le dossier courant pour le temps de la transaction
+		if (chdir(path) != 0) {
+			//Impossible en théorie puisqu'on a réussi la création sur le premier esclave
+			printf("An error has occurred during the current directory change (pre creation).\n\n");
+			return;
+		}
 	}
 
 	//On crée nos valeurs "bornes" : size_tot et size_rec
@@ -983,10 +1048,10 @@ void write_file(int descriptor, char* command) {
 
 	FILE* f = fopen(filename2, "w");
 
-	//On envoie un message au client/maitre pour dire qu'on est pret a recevoir le fichier
-	send(descriptor, "0", 1, 0);
-
 	if (f != NULL) {
+		//On envoie un message au client/maitre pour dire qu'on est pret a recevoir le fichier
+		send(descriptor, "0", 1, 0);
+		
 		//On boucle tant qu'on n'a pas récupéré tout le fichier du client
 
 		while (size_rec_tot != size_tot) {
@@ -1032,13 +1097,12 @@ void write_file(int descriptor, char* command) {
 
 		reussite = 0;
 
-		printf("Le fichier a bien été uploadé sur le serveur.\n");
+		printf("The file has been uploaded on the server.\n");
+		fclose(f);
 	} else {
 		reussite = 1;
-		printf("Une erreur est survenue lors de l'ouverture du fichier. Veuillez réessayer.\n");
+		printf("An error has occurred during the file opening. Please try again.\n");
 	}
-	
-	fclose(f);
 	
 	//On envoie le résultat de l'upload au client
 
@@ -1049,47 +1113,74 @@ void write_file(int descriptor, char* command) {
 	int sent = send(descriptor, buf, 2, 0);
 
 	if (sent == -1) {
-		printf("Erreur lors de l'envoi.\n");
+		printf("Error while sending.\n");
 	}
 
 	/*
 		On a fini la transaction avec le client, on s'occupe maintenant des échanges
-		entre le maitre et les autres esclaves qui n'ont pas le fichier mais on le fait dans
-		autre processus pour ne pas bloquer le client
+		entre le maitre et les autres esclaves (si l'ajout a fonctionné)
 	*/
 
 	if (client == 0) {
-		//On est dans le client donc on ouvre une connexion avec le serveur maitre
+		if (reussite == 0) {
+			/*
+				On est dans le client donc on ouvre une connexion avec le serveur maitre
+				On doit transmettre le chemin du fichier car les autres esclaves ne sont
+				peut-être pas dans le même dossier
+			*/
 
-		int masterfd = Open_clientfd(MASTER_IP, PORT);
-		char ncmd[strlen(command) + 6];
-		char portc[TAILLE_PORT + 1];
-		sprintf(portc, "%i", port);
-		portc[TAILLE_PORT] = '\0';
+			//On récupère le chemin courant
+			char path[MAX_PATH_SIZE];
+			getcwd(path, MAX_PATH_SIZE);
 
-		memcpy(ncmd, portc, 4);
-		ncmd[4] = ':';
-		memcpy(&(ncmd[5]), command, strlen(command));
-		ncmd[strlen(command) + 5] = '\0';
+			//On crée un buffer contenant le chemin + ' ' + le nom du fichier
+			char pathfile[strlen(path) + strlen(filename) + 2];
+			memcpy(pathfile, path, strlen(path));
+			pathfile[strlen(path)] = '/';
+			memcpy(&(pathfile[strlen(path) + 1]), filename, strlen(filename));
+			pathfile[strlen(path) + strlen(filename) + 1] = '\0';
 
-		Rio_writen(masterfd, ncmd, strlen(ncmd));
-	
-		/*
-			On sait qu'on a NB_SLAVE - 1 esclaves auxquels transmettre le fichier
-			donc on envoie au mettre NB_SLAVE - 1 fois le fichier
-		*/
+			//On rajoute le port et la commande (put)
 
-		unsigned int i = 0;
+			char ncmd[strlen(pathfile) + 10];
+			char portc[TAILLE_PORT + 1];
+			sprintf(portc, "%i", port);
+			portc[TAILLE_PORT] = '\0';
 
-		while (i++ < NB_SLAVE - 1) {
-			send_file_to_server(masterfd, command);
+			memcpy(ncmd, portc, 4);
+			ncmd[4] = ':';
+			memcpy(&(ncmd[5]), "put ", 4);
+			memcpy(&(ncmd[9]), pathfile, strlen(pathfile));
+			ncmd[strlen(pathfile) + 9] = '\0';
+
+			//on envoie au maitre cette commande
+
+			int masterfd = Open_clientfd(MASTER_IP, PORT);
+			Rio_writen(masterfd, ncmd, strlen(ncmd));
+		
+			/*
+				On sait qu'on a NB_SLAVE - 1 esclaves auxquels transmettre le fichier
+				donc on envoie au mettre NB_SLAVE - 1 fois le fichier
+			*/
+
+			unsigned int i = 0;
+
+			while (i++ < NB_SLAVE - 1) {
+				send_file_to_server(masterfd, filename2);
+			}
+
+			close(masterfd);
 		}
-
-		close(masterfd);
+	} else {
+		//Si la commande provenait du maître, on revient dans le dossier d'origine
+		if (chdir(curr_dir) != 0) {
+			//Impossible en théorie
+			printf("An error has occurred during the go back to the origin repository.\n\n");
+		}
 	}
 }
 
-void send_file_to_server(int descriptor, char* command) {
+void send_file_to_server(int descriptor, char* filename) {
 	//On attend que le serveur soit pret a recevoir la donnée
 	char ready[2];
 	recv(descriptor, ready, 1, 0);
@@ -1099,11 +1190,9 @@ void send_file_to_server(int descriptor, char* command) {
 		recv(descriptor, ready, 1, 0);
 	}
 
-	//On récupère notre nom de fichier
-	char filename[strlen(command) - 3];
-	memcpy(filename, &(command[4]), strlen(command) - 4);
-	filename[strlen(command) - 4] = '\0';
-
+	char path[1000];
+	getcwd(path, 1000);
+	
 	//On vérifie si le fichier demandé existe
 	if (access(filename, F_OK) != -1) {
 		//S'il existe, on l'ouvre en lecture
@@ -1133,7 +1222,7 @@ void send_file_to_server(int descriptor, char* command) {
 				ssize_t sent_size = send(descriptor, buf, read_size + longueur + 1, 0);
 
 				if (sent_size != read_size + longueur + 1) {
-					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n");
+					printf("An error has occurred during file sending. Please try again.\n\n");
 					break;
 				}
 
@@ -1145,7 +1234,7 @@ void send_file_to_server(int descriptor, char* command) {
 				ssize_t sent_size = send(descriptor, buf, read_size, 0);
 
 				if (sent_size != read_size) {
-					printf("Une erreur est survenue lors de l'envoi du fichier. Veuillez réessayer.\n");
+					printf("An error has occurred during file sending. Please try again.\n\n");
 					break;
 				}
 
@@ -1155,7 +1244,7 @@ void send_file_to_server(int descriptor, char* command) {
 
 		fclose(f);
 	} else {
-		printf("Le fichier demandé n'existe pas. Veuillez saisir un nom de fichier valide.\n");
+		printf("The selected file does not exist. Please enter a valid filename.\n\n");
 	}
 }
 
@@ -1221,7 +1310,7 @@ void send_error(int descriptor) {
 	int sent = send(descriptor, buf, 2, 0);
 
 	if (sent == -1) {
-		printf("Erreur lors de l'envoi.\n");
+		printf("Error while sending.\n");
 	}
 }
 
@@ -1265,7 +1354,7 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	password[i - j] = '\0';
 
 	if (strcmp(login, "") == 0 || strcmp(password, "") == 0) {
-		printf("La commande transmise n'a pas le format requis. Format attendu \"connect <login> <password>\"\n");
+		printf("The transmitted command does not have the requested format. Requested format : \"connect <login> <password>\"\n");
 		reussite = 1;
 		free(login);
 		free(password);
@@ -1289,7 +1378,7 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 			current_user->password = password;
 			reussite = 0;
 		} else {
-			printf("Les identifiants transmis n'ont aucune correspondance dans la base.\n");
+			printf("Transmitted credentials have no correspondance in the base.\n");
 			reussite = 1;
 			free(login);
 			free(password);
@@ -1305,7 +1394,7 @@ void connect_if_user_exists(int descriptor, Credential** user_list, int nb_user,
 	int sent = send(descriptor, buf, 2, 0);
 
 	if (sent == -1) {
-		printf("Erreur lors de l'envoi.\n");
+		printf("Error while sending.\n");
 	}
 }
 
