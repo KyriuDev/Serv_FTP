@@ -304,7 +304,7 @@ void send_file(char* requete, char* buf, int connfd) {
 	//Si on ne peut pas accéder au fichier, on envoie une erreur au client
 
 	if (my_file == NULL) {
-		printf("The selected file is not existing or not available.\n");
+		printf("The selected file does not exist or not available.\n");
 		send(connfd, "1", 1, 0);
 		return;
 	}
@@ -317,9 +317,20 @@ void send_file(char* requete, char* buf, int connfd) {
 		l'envoi (taille == 0)
 	*/
 
+	//On attend que le client soit pret à recevoir
+	char ready[2];
+	recv(connfd, ready, 1, 0);
+	ready[1] = '\0';
+
+	while (strcmp(ready, "") == 0) {
+		recv(connfd, ready, 1, 0);
+	}
+
 	//unsigned long file_size = get_file_size(my_file); //TODO
 	unsigned long file_size = get_file_size(my_file) - taille_fichier_client;
 	unsigned long file_size_rem = file_size;
+
+	printf("file size : %li\n", file_size);
 
 	/*
 		Pour ne plus fermer le descripteur de fichier a chaque fin de transaction,
@@ -333,6 +344,8 @@ void send_file(char* requete, char* buf, int connfd) {
 
 	sprintf(longueur_str, "%li", file_size);
 	longueur_str[longueur] = '\0';
+
+	printf("longueur str : |%s|\n", longueur_str);
 
 	/*
 		On crée notre buffer de contenu de fichier qui contiendra au maximum
@@ -354,7 +367,10 @@ void send_file(char* requete, char* buf, int connfd) {
 		a notre client.
 	*/
 
-	while(file_size_rem > 0) {
+	int i = 0;
+
+	while (file_size_rem > 0) {
+		i++;
 		/*
 			Si c'est le premier paquet transmis, il faut lui ajouter la
 			taille du fichier transmis au début, ainsi qu'un caractère spécial
@@ -376,6 +392,8 @@ void send_file(char* requete, char* buf, int connfd) {
 				//On ajoute notre caractère '\n'
 				contenu[longueur] = '\n';
 
+				printf("%i\n", MAX_PACK_SIZE - longueur - 1);
+
 				//On ajoute le contenu de notre fichier au buffer
 				fread(&(contenu[longueur + 1]), MAX_PACK_SIZE - longueur - 1, 1, my_file);
 			} else {
@@ -393,22 +411,44 @@ void send_file(char* requete, char* buf, int connfd) {
 		*/
 
 		if (file_size_rem < MAX_PACK_SIZE) {
-			contenu[file_size_rem + longueur + 1] = '\0';
-			int tailleTransmise = send(connfd, contenu, file_size_rem + longueur + 1, 0);
-		
-			/*
-				Si send renvoie -1, on a un problème (on simplifiera ici en admettant
-				que la valeur -1 est toujours synonyme d'un problème côté client) donc
-				on sort de notre boucle, on ferme notre fichier et on affiche une erreur.
-			*/
+			if (file_size_rem == file_size) {
+				contenu[file_size_rem + longueur + 1] = '\0';
+				int tailletransmise = send(connfd, contenu, strlen(contenu), 0);
+			
+				/*
+					si send renvoie -1, on a un problème (on simplifiera ici en admettant
+					que la valeur -1 est toujours synonyme d'un problème côté client) donc
+					on sort de notre boucle, on ferme notre fichier et on affiche une erreur.
+				*/
 
-			if (tailleTransmise == -1) {
-				printf("The data sending encountered an issue. Please try again.\n");
-				break;
+				if (tailletransmise == -1) {
+					printf("the data sending encountered an issue. please try again.\n");
+					break;
+				}
+
+				sent_size += tailletransmise - longueur - 1;
+				file_size_rem -= tailletransmise - longueur - 1;
+			} else {
+				contenu[file_size_rem] = '\0';
+				int tailletransmise = send(connfd, contenu, strlen(contenu), 0);
+			
+				/*
+					si send renvoie -1, on a un problème (on simplifiera ici en admettant
+					que la valeur -1 est toujours synonyme d'un problème côté client) donc
+					on sort de notre boucle, on ferme notre fichier et on affiche une erreur.
+				*/
+
+				if (tailletransmise == -1) {
+					printf("the data sending encountered an issue. please try again.\n");
+					break;
+				}
+
+				printf("taille transmise : %i\n", tailletransmise);
+				printf("moins que 1000 dernier tour\n");
+				
+				sent_size += tailletransmise;
+				file_size_rem -= tailletransmise;
 			}
-
-			sent_size += tailleTransmise - longueur - 1;
-			file_size_rem -= tailleTransmise - longueur - 1;
 		} 
 		
 		/*
@@ -434,6 +474,8 @@ void send_file(char* requete, char* buf, int connfd) {
 			file_size_rem -= tailleTransmise;
 		}
 	}
+
+	printf("on a fait %i tour\n", i);
 	
 	//On ferme notre fichier
 

@@ -228,13 +228,13 @@ int main(int argc, char **argv)
 				//On check le byte renvoyé par le serveur pour savoir si notre fichier existe
 
 				char exists[2];
-				recv(nclientfd, exists, 2, 0);
+				recv(nclientfd, exists, 1, 0);
 				exists[1] = '\0';
 
 				//On attend la réponse du serveur
 
 				while(strcmp(exists, "") == 0) {
-					recv(nclientfd, exists, 2, 0);
+					recv(nclientfd, exists, 1, 0);
 				}
 
 				//Si le fichier n'existe pas, on print un message d'erreur et on recommence l'attente
@@ -409,44 +409,60 @@ void get_file(int* size_tot, int clientfd, char* filename) {
 	int size_rec;
 	char buffer[MAX_PACK_SIZE + 1];
 
-	/*
-		tant qu'on reçoit des données du serveur, on les recupère par
-		paquets de 1000 bytes via "recv" puis on les ajoute au 
-		fichier souhaité.
-	*/
+	FILE* f = fopen(filename, "a");
 
-	while ((*size_tot) != file_size) {
-		size_rec = recv(clientfd, buffer, MAX_PACK_SIZE, 0);
-		
-		if (file_size == -1) {
-			//première itération de la boucle : on récupère la taille du fichier distant
-			char size[MAX_PACK_SIZE + 1];
-			unsigned int i = 0;
+	//On envoie au serveur qu'on est pret a recevoir
+	send(clientfd, "0", 1, 0);
 
-			while (i < size_rec && buffer[i] != '\n') {
-				size[i] = buffer[i];
-				i++;
+	if (f != NULL) {
+		int i = 0;
+		while ((*size_tot) != file_size) {
+			printf("size tot : %i\n", (*size_tot));
+			printf("file size : %li\n", file_size);
+			printf("avant recv\n");
+			size_rec = recv(clientfd, buffer, MAX_PACK_SIZE, 0);
+			printf("apres recv\n");
+			if (file_size == -1) {
+				//première itération de la boucle : on récupère la taille du fichier distant
+				char size[MAX_PACK_SIZE + 1];
+				unsigned int i = 0;
+
+				while (i < size_rec && buffer[i] != '\n') {
+					size[i] = buffer[i];
+					i++;
+				}
+
+				size[i] = '\0';
+
+				printf("size : |%s|\n", size);
+
+				sscanf(size, "%li", &file_size);
+
+				char nbuf[MAX_PACK_SIZE - i];
+				int real_size = size_rec - i - 1;
+				memcpy(nbuf, &(buffer[i + 1]), real_size);
+				nbuf[real_size] = '\0';
+
+				fwrite(nbuf, strlen(nbuf), 1, f);
+
+				(*size_tot) += real_size;
+			} else {	
+				buffer[size_rec] = '\0';
+	
+				printf("size_rec : %i\n", size_rec);
+
+				fwrite(buffer, strlen(buffer), 1, f);
+
+				(*size_tot) += size_rec;
 			}
 
-			size[i] = '\0';
-
-			sscanf(size, "%li", &file_size);
-
-			char nbuf[MAX_PACK_SIZE - i];
-			int real_size = size_rec - i - 1;
-			memcpy(nbuf, &(buffer[i + 1]), real_size);
-			nbuf[real_size] = '\0';
-
-			add_to_file(nbuf, filename);
-
-			(*size_tot) += real_size;
-		} else {	
-			buffer[size_rec] = '\0';
-
-			add_to_file(buffer, filename);
-
-			(*size_tot) += size_rec;
+			i++;
 		}
+		
+		fclose(f);
+		printf("on a fait %i tour\n", i);
+	} else {
+		printf("An error has occurred during the file opening.\n\n");
 	}
 }
 
